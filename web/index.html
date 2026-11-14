@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Speedreader</title>
+<style>
+:root {
+  --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+  --bg: #12171E; --card: #1B222C; --line: #2A3441; --txt: #E8EDF2; --muted: #93A0AF;
+  --acc: #3FB6A8; --good: #4CC38A; --bad: #E5674F; --piv: #F08A5D;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#app { max-width: 560px; margin: 0 auto; padding: calc(var(--sat) + 8px) 14px calc(var(--sab) + 28px); }
+header { display: flex; align-items: center; gap: 8px; height: 48px; }
+header h1 { font-size: 20px; margin: 0; flex: 1; }
+#back { background: none; border: 0; color: var(--txt); font-size: 30px; line-height: 1; padding: 0 12px 4px 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+.card h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.muted { color: var(--muted); } .small { font-size: 13px; } .good { color: var(--good); } .bad { color: var(--bad); }
+.big { font-size: 28px; font-weight: 700; }
+button { font: inherit; color: var(--txt); background: #26303D; border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; }
+button.primary { background: var(--acc); border-color: var(--acc); color: #06201D; font-weight: 700; }
+button.block { display: block; width: 100%; margin-top: 8px; }
+button.ghost { background: none; }
+.row { display: flex; gap: 8px; align-items: center; } .row > .grow { flex: 1; }
+.item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.item:first-of-type { border-top: 0; } .item > div.grow { flex: 1; min-width: 0; }
+.item .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbar { height: 4px; background: #0E1319; border-radius: 2px; overflow: hidden; margin-top: 5px; }
+.pbar i { display: block; height: 100%; background: var(--acc); }
+label.f { display: block; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+label.c { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+input[type=text], input[type=number], textarea { font: inherit; color: var(--txt); background: #0E1319; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; }
+input.short { width: 100px; }
+textarea { min-height: 170px; }
+input[type=range] { width: 100%; accent-color: var(--acc); }
+ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
+
+/* Leser: Vollbild */
+#reader { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
+  padding: calc(var(--sat) + 6px) 0 calc(var(--sab) + 10px); }
+#reader[hidden] { display: none; }
+#rd-top { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: 44px; }
+#rd-close { background: none; border: 0; font-size: 28px; padding: 0 10px 4px 0; }
+#rd-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+#rd-info { font-size: 13px; color: var(--muted); white-space: nowrap; }
+#rd-seek { margin: 2px 12px 0; width: calc(100% - 24px); }
+#rd-stage { position: relative; height: 150px; display: flex; align-items: center; margin-top: 8px; user-select: none;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#rd-stage::before, #rd-stage::after { content: ''; position: absolute; left: 38%; width: 2px; height: 14px; background: var(--piv); opacity: .7; }
+#rd-stage::before { top: 0; } #rd-stage::after { bottom: 0; }
+#rd-stage.chunk::before, #rd-stage.chunk::after { display: none; }
+#rd-word { display: flex; width: 100%; font-weight: 600; white-space: nowrap; }
+#w-l { flex: 0 0 38%; text-align: right; overflow: hidden; }
+#w-p { color: var(--piv); } #w-r { flex: 1; overflow: hidden; }
+#rd-word.chunk { justify-content: center; } #rd-word.chunk #w-l { flex: 0 0 auto; }
+#rd-ctx { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; font-size: 16px; line-height: 1.6; color: var(--muted); }
+#rd-ctx span.cur { background: var(--acc); color: #06201D; border-radius: 4px; padding: 0 2px; }
+#rd-ctx .hint { text-align: center; margin-top: 30px; }
+#rd-ctl { display: flex; gap: 6px; padding: 6px 10px 0; }
+#rd-ctl button { flex: 1; padding: 12px 4px; font-size: 15px; }
+#rd-play { flex: 2 !important; }
+#modal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+#modal[hidden] { display: none; }
+#modal > div { background: var(--card); width: 100%; max-width: 560px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(var(--sab) + 16px); }
+#modal h3 { margin: 0 0 6px; }
+.btns { display: flex; gap: 8px; margin-top: 12px; } .btns button { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><button id="back" aria-label="Zurück">‹</button><h1 id="title">Speedreader</h1></header>
+  <main id="view"></main>
+</div>
+<div id="reader" hidden>
+  <div id="rd-top"><button id="rd-close" aria-label="Schließen">‹</button><span id="rd-title"></span><span id="rd-info"></span></div>
+  <input type="range" id="rd-seek" min="0" max="1" value="0" aria-label="Position">
+  <div id="rd-stage"><div id="rd-word"><span id="w-l"></span><span id="w-p"></span><span id="w-r"></span></div></div>
+  <div id="rd-ctx"></div>
+  <div id="rd-ctl">
+    <button id="rd-sent" aria-label="Satz zurück">⏮ Satz</button><button id="rd-slow">−25</button>
+    <button id="rd-play" class="primary">▶</button><button id="rd-fast">+25</button><button id="rd-chunk">1</button>
+  </div>
+</div>
+<div id="modal" hidden><div id="modal-in"></div></div>
+
+<script>
+'use strict';
+// =====================================================================
+// Speedreader: eigene Texte Wort fuer Wort lesen (RSVP) mit einstellbarem
+// Tempo. Texte aus Zwischenablage, Textdatei oder EPUB (ohne Kopierschutz).
+// Aufbau: Daten -> Textaufbereitung (rein) -> EPUB/ZIP -> Leser -> Ansichten
+//         -> Selbsttest (srTests, ?debug=1). Details in README.md.
+// =====================================================================
+const $ = id => document.getElementById(id);
+const NATIVE = window.SrAndroid;
+
+// ---------------------------------------------------------------- Daten
+const K = { set: 'speedreader.settings.v1', lib: 'speedreader.library.v1', stats: 'speedreader.stats.v1', text: 'speedreader.text.' };
+const DEFAULT_SETTINGS = { schema: 1, wpm: 300, chunk: 1, font: 34, pauses: true, ramp: false, rampPerMin: 10, rampMax: 500 };
+let saveOk = true;
+function load(k, fb) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch (e) { return fb; } }
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { saveOk = false; return false; } }
+const db = { settings: Object.assign({}, DEFAULT_SETTINGS, load(K.set, {})), lib: load(K.lib, []), stats: load(K.stats, {}) };
+function dstr(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function today() { return dstr(new Date()); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+// Die Texte selbst liegen in IndexedDB (Buecher sprengen localStorage); klappt
+// das nicht, als Rueckfall in localStorage.
+const Texts = {
+  db: null,
+  open() {
+    return new Promise(res => {
+      try {
+        const r = indexedDB.open('speedreader', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('texts');
+        r.onsuccess = () => { Texts.db = r.result; res(true); };
+        r.onerror = () => res(false);
+      } catch (e) { res(false); }
+    });
+  },
+  tx(mode, fn) {
+    return new Promise((res, rej) => {
+      const t = Texts.db.transaction('texts', mode), rq = fn(t.objectStore('texts'));
+      t.oncomplete = () => res(rq && rq.result); t.onerror = t.onabort = () => rej(t.error);
+    });
+  },
+  async put(id, text) {
+    if (Texts.db) { try { await Texts.tx('readwrite', s => s.put(text, id)); return true; } catch (e) {} }
+    try { localStorage.setItem(K.text + id, text); return true; } catch (e) { return false; }
+  },
+  async get(id) {
+    if (Texts.db) { try { const v = await Texts.tx('readonly', s => s.get(id)); if (v != null) return v; } catch (e) {} }
+    return localStorage.getItem(K.text + id);
+  },
+  async del(id) {
+    if (Texts.db) { try { await Texts.tx('readwrite', s => s.delete(id)); } catch (e) {} }
+    localStorage.removeItem(K.text + id);
+  },
+};
+
+// ---------------------------------------------------------------- Textaufbereitung
+// Sehr lange Woerter in Stuecke teilen, damit sie auf den Bildschirm passen.
+function splitLong(w) {
+  if (w.length <= 22) return [w];
+  const out = []; for (let i = 0; i < w.length; i += 14) out.push(w.slice(i, i + 14) + (i + 14 < w.length ? '-' : ''));
+  return out;
+}
+// Text -> {words, para}. para enthaelt die Indizes, an denen ein neuer Absatz beginnt.
+function tokenize(text) {
+  const words = [], para = new Set();
+  String(text).replace(/\r/g, '').split(/\n\s*\n+/).forEach(p => {
+    const w = p.split(/\s+/).filter(Boolean); if (!w.length) return;
+    if (words.length) para.add(words.length);
+    w.forEach(x => splitLong(x).forEach(y => words.push(y)));
+  });
+  return { words, para };
+}
+// Blickpunkt im Wort (etwas links der Mitte), gezaehlt ohne fuehrende Satzzeichen.
+function orpIndex(w) {
+  let off = 0; while (off < w.length - 1 && /[^0-9A-Za-zÀ-ÿ]/.test(w[off])) off++;
+  const core = w.slice(off).replace(/[^0-9A-Za-zÀ-ÿ]+$/, ''), L = core.length;
+  return off + (L <= 1 ? 0 : L <= 5 ? 1 : L <= 9 ? 2 : L <= 13 ? 3 : 4);
+}
+// Anzeigedauer eines Worts als Vielfaches der Grunddauer: lange Woerter, Zahlen,
+// Satzzeichen und Absatzenden bekommen mehr Zeit.
+function delayFactor(w, endsPara, pauses) {
+  let f = 1 + clamp((w.length - 8) * 0.04, 0, 0.6);
+  if (/\d/.test(w)) f += 0.4;
+  if (!pauses) return f;
+  if (endsPara) return f + 1.5;
+  if (/[.!?…]["'»«“”)\]]*$/.test(w)) return f + 1.2;
+  if (/[,;:–—]$/.test(w)) return f + 0.5;
+  return f;
+}
+// Anfang des Satzes, in dem Wort i steht (oder des Satzes davor, wenn i schon ein Satzanfang ist).
+function sentenceStart(words, i) {
+  let j = Math.min(i, words.length) - 1;
+  while (j > 0 && !/[.!?…]["'»«“”)\]]*$/.test(words[j - 1])) j--;
+  return Math.max(0, j);
+}
+function estMinutes(n, wpm) { return n * 1.25 / wpm; }     // 1,25 = mittlerer Zuschlag durch Pausen
+function fmtMin(m) { return m < 1 ? '<1 min' : m < 90 ? Math.round(m) + ' min' : (Math.round(m / 6) / 10).toString().replace('.', ',') + ' h'; }
+
+// ---------------------------------------------------------------- ZIP / EPUB
+function u16(b, o) { return b[o] | b[o + 1] << 8; }
+function u32(b, o) { return (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0; }
+// Liest das Inhaltsverzeichnis einer ZIP-Datei: Name -> {method, csize, off}.
+function zipIndex(b) {
+  let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) if (u32(b, i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('Keine ZIP-Datei');
+  const n = u16(b, e + 10), files = {}, dec = new TextDecoder(); let p = u32(b, e + 16);
+  for (let k = 0; k < n; k++) {
+    if (u32(b, p) !== 0x02014b50) throw new Error('ZIP-Verzeichnis beschädigt');
+    const nl = u16(b, p + 28), xl = u16(b, p + 30), cl = u16(b, p + 32);
+    files[dec.decode(b.subarray(p + 46, p + 46 + nl))] = { method: u16(b, p + 10), csize: u32(b, p + 20), off: u32(b, p + 42) };
+    p += 46 + nl + xl + cl;
+  }
+  return files;
+}
+async function zipRead(b, f) {
+  if (u32(b, f.off) !== 0x04034b50) throw new Error('ZIP-Eintrag beschädigt');
+  const start = f.off + 30 + u16(b, f.off + 26) + u16(b, f.off + 28), data = b.subarray(start, start + f.csize);
+  if (f.method === 0) return data;
+  if (f.method !== 8) throw new Error('Nicht unterstützte ZIP-Kompression');
+  if (typeof DecompressionStream === 'undefined') throw new Error('Dieses Gerät kann EPUB nicht entpacken');
+  const s = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+function resolvePath(base, href) {
+  const parts = (base ? base.split('/') : []).concat(decodeURIComponent(href.split('#')[0]).split('/')), out = [];
+  parts.forEach(s => { if (s === '..') out.pop(); else if (s && s !== '.') out.push(s); });
+  return out.join('/');
+}
+// (X)HTML eines Kapitels -> Absaetze als Text.
+function htmlToText(html) {
+  let doc = new DOMParser().parseFromString(html, 'application/xhtml+xml');
+  if (!doc.body || doc.getElementsByTagName('parsererror').length) doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc.body) return '';
+  doc.body.querySelectorAll('script,style,nav,svg').forEach(n => n.remove());
+  const SEL = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,dt,dd,pre,td', out = [];
+  doc.body.querySelectorAll(SEL).forEach(n => { if (n.querySelector(SEL)) return; const t = n.textContent.replace(/\s+/g, ' ').trim(); if (t) out.push(t); });
+  return out.length ? out.join('\n\n') : doc.body.textContent.replace(/[ \t]+/g, ' ').trim();
+}
+// EPUB (ohne Kopierschutz) -> {title, text}
+async function parseEpub(bytes) {
+  const z = zipIndex(bytes), dec = new TextDecoder(), rd = async n => { if (!z[n]) throw new Error('EPUB unvollständig: ' + n + ' fehlt'); return dec.decode(await zipRead(bytes, z[n])); };
+  if (z['META-INF/encryption.xml']) {
+    const enc = await rd('META-INF/encryption.xml');
+    if (/EncryptedData/.test(enc) && !/font|obfuscation/i.test(enc)) throw new Error('Dieses EPUB ist kopiergeschützt (DRM) und lässt sich nicht lesen.');
+  }
+  const xml = s => new DOMParser().parseFromString(s, 'application/xml');
+  const root = xml(await rd('META-INF/container.xml')).getElementsByTagName('rootfile')[0];
+  if (!root) throw new Error('EPUB ohne Inhaltsangabe');
+  const opfPath = root.getAttribute('full-path'), base = opfPath.split('/').slice(0, -1).join('/'), opf = xml(await rd(opfPath));
+  const items = {}; Array.from(opf.getElementsByTagName('item')).forEach(i => { items[i.getAttribute('id')] = i.getAttribute('href'); });
+  const tEl = opf.getElementsByTagName('dc:title')[0] || opf.getElementsByTagNameNS('*', 'title')[0], parts = [];
+  for (const ref of Array.from(opf.getElementsByTagName('itemref'))) {
+    const href = items[ref.getAttribute('idref')]; if (!href) continue;
+    const path = resolvePath(base, href); if (!z[path]) continue;
+    const t = htmlToText(await rd(path)); if (t) parts.push(t);
+  }
+  if (!parts.length) throw new Error('Kein lesbarer Text im EPUB gefunden');
+  return { title: tEl ? tEl.textContent.trim() : '', text: parts.join('\n\n') };
+}
+function decodeText(bytes) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (e) { return new TextDecoder('windows-1252').decode(bytes); }
+}
+function b64ToBytes(s) { const bin = atob(s), b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; }
+
+// ---------------------------------------------------------------- Bibliothek
+function saveLib() { store(K.lib, db.lib); }
+async function addText(title, text) {
+  const tok = tokenize(text); if (tok.words.length < 2) return 'Kein Text gefunden.';
+  const id = 't' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+  if (!await Texts.put(id, text)) return 'Der Text ist zu groß für den Speicher.';
+  db.lib.unshift({ id, title: (title || '').trim() || tok.words.slice(0, 6).join(' '), count: tok.words.length, pos: 0, added: today(), last: null });
+  saveLib(); return null;
+}
+async function addFile(name, bytes) {
+  try {
+    if (/\.epub$/i.test(name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) { const e = await parseEpub(bytes); return await addText(e.title || name.replace(/\.[^.]+$/, ''), e.text); }
+    return await addText(name.replace(/\.[^.]+$/, ''), decodeText(bytes));
+  } catch (e) { return e && e.message || 'Datei konnte nicht gelesen werden.'; }
+}
+const SAMPLE = 'Willkommen im Speedreader. Dieser kurze Text zeigt dir, wie die App funktioniert.\n\n' +
+  'Statt mit den Augen über die Zeile zu wandern, bleibst du an einer Stelle: Die Wörter erscheinen nacheinander, und ein Buchstabe ist farbig markiert. Auf ihn richtest du den Blick.\n\n' +
+  'Tippe auf das Wort, um anzuhalten. Dann siehst du den Text ringsum und kannst auf eine andere Stelle tippen, um dort weiterzulesen. Mit den Knöpfen unten stellst du das Tempo ein und springst zum Satzanfang zurück.\n\n' +
+  'Fang mit einem Tempo an, bei dem du alles verstehst, und steigere dich langsam. Verstehen ist das Ziel, nicht die Zahl. Viel Spaß beim Lesen!';
+
+// ---------------------------------------------------------------- Leser
+const P = { on: false, item: null, words: [], para: new Set(), i: 0, timer: 0, due: 0, t0: 0, wpm: 300, startWpm: 300, playMs: 0, sessMs: 0, sessWords: 0, sessFrom: 0, flushedMs: 0, flushedWords: 0 };
+function chunkN() { return clamp(db.settings.chunk, 1, 3); }
+function showWord() {
+  const n = chunkN(), i = Math.min(P.i, P.words.length - 1), w = P.words[i] || '';
+  const stage = $('rd-stage'), box = $('rd-word');
+  if (n === 1) {
+    const k = orpIndex(w); stage.className = ''; box.className = '';
+    $('w-l').textContent = w.slice(0, k); $('w-p').textContent = w.slice(k, k + 1); $('w-r').textContent = w.slice(k + 1);
+    box.style.fontSize = db.settings.font * Math.min(1, 15 / Math.max(1, w.length - k)) + 'px';
+  } else {
+    const t = P.words.slice(i, i + n).join(' '); stage.className = 'chunk'; box.className = 'chunk';
+    $('w-l').textContent = t; $('w-p').textContent = ''; $('w-r').textContent = '';
+    box.style.fontSize = db.settings.font * Math.min(1, 22 / Math.max(1, t.length)) + 'px';
+  }
+}
+function updateInfo() {
+  const N = P.words.length, left = N - P.i;
+  $('rd-info').textContent = Math.round(P.i / N * 100) + ' % · noch ' + fmtMin(estMinutes(left, P.wpm));
+  $('rd-seek').max = N - 1; $('rd-seek').value = Math.min(P.i, N - 1);
+  $('rd-play').textContent = (P.on ? '⏸ ' : '▶ ') + Math.round(P.wpm) + ' WPM'; $('rd-chunk').textContent = chunkN() + (chunkN() > 1 ? ' Wörter' : ' Wort');
+}
+function showContext() {
+  const el = $('rd-ctx');
+  if (P.on) { el.innerHTML = '<div class="hint small">Tippe auf das Wort, um anzuhalten.</div>'; return; }
+  const a = Math.max(0, P.i - 70), b = Math.min(P.words.length, P.i + 110); let h = '';
+  for (let k = a; k < b; k++) h += (P.para.has(k) && k > a ? '<br><br>' : '') + '<span data-i="' + k + '"' + (k === P.i ? ' class="cur"' : '') + '>' + esc(P.words[k]) + '</span> ';
+  el.innerHTML = h; const cur = el.querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
+}
+function step() {
+  if (!P.on) return;
+  if (P.i >= P.words.length) { pause(true); return; }
+  showWord();
+  const n = chunkN(); let f = 0;
+  for (let k = 0; k < n && P.i + k < P.words.length; k++) f += delayFactor(P.words[P.i + k], P.para.has(P.i + k + 1) || P.i + k + 1 >= P.words.length, db.settings.pauses);
+  if (db.settings.ramp) P.wpm = Math.min(Math.max(P.startWpm, db.settings.rampMax), P.startWpm + db.settings.rampPerMin * (P.playMs + performance.now() - P.t0) / 60000);
+  P.i += n; P.sessWords += n; P.due += f * 60000 / P.wpm;
+  if (P.sessWords % 20 < n) updateInfo();
+  P.timer = setTimeout(step, Math.max(0, P.due - performance.now()));
+}
+function play() {
+  if (P.on || !P.words.length) return;
+  if (P.i >= P.words.length) P.i = 0;
+  P.on = true; P.t0 = P.due = performance.now(); showContext(); updateInfo(); step();
+}
+// Haelt an und bleibt auf dem zuletzt gezeigten Wort stehen.
+function pause(finished) {
+  if (!P.on) return;
+  P.on = false; clearTimeout(P.timer);
+  const dt = performance.now() - P.t0; P.playMs += dt; P.sessMs += dt;
+  P.i = finished ? P.words.length : Math.max(0, Math.min(P.i, P.words.length) - chunkN());
+  flush(); showWord(); updateInfo(); showContext();
+  if (finished) $('rd-ctx').insertAdjacentHTML('afterbegin', '<div class="card good">Text zu Ende gelesen.</div>');
+}
+// Position und Tagesstatistik sichern.
+function flush() {
+  if (!P.item) return;
+  P.item.pos = Math.min(P.i, P.words.length); P.item.last = today(); saveLib();
+  const d = db.stats[today()] || (db.stats[today()] = { ms: 0, words: 0 });
+  d.ms += P.sessMs - P.flushedMs; d.words += P.sessWords - P.flushedWords; P.flushedMs = P.sessMs; P.flushedWords = P.sessWords;
+  store(K.stats, db.stats);
+}
+function seekTo(i) { P.i = clamp(i, 0, P.words.length - 1); showWord(); updateInfo(); showContext(); }
+async function openReader(id) {
+  const item = db.lib.find(x => x.id === id); if (!item) return;
+  const text = await Texts.get(id); if (text == null) { toast('Der Text ist nicht mehr gespeichert.'); return; }
+  const tok = tokenize(text);
+  Object.assign(P, { on: false, item, words: tok.words, para: tok.para, i: item.pos >= tok.words.length ? 0 : item.pos, wpm: db.settings.wpm, startWpm: db.settings.wpm, playMs: 0, sessMs: 0, sessWords: 0, flushedMs: 0, flushedWords: 0 });
+  P.sessFrom = P.i;
+  $('rd-title').textContent = item.title; $('reader').hidden = false; location.hash = 'read';
+  showWord(); updateInfo(); showContext();
+}
+function closeReader() { pause(); flush(); $('reader').hidden = true; P.item = null; }
+function setWpm(v) { P.wpm = P.startWpm = clamp(Math.round(v / 5) * 5, 100, 1200); P.playMs = 0; if (P.on) P.t0 = performance.now(); db.settings.wpm = P.wpm; store(K.set, db.settings); updateInfo(); }
+$('rd-stage').onclick = () => { if (P.on) pause(); else play(); };
+$('rd-play').onclick = () => { if (P.on) pause(); else play(); };
+$('rd-slow').onclick = () => setWpm(P.wpm - 25); $('rd-fast').onclick = () => setWpm(P.wpm + 25);
+$('rd-sent').onclick = () => { const was = P.on; if (was) pause(); seekTo(sentenceStart(P.words, P.i)); if (was) play(); };
+$('rd-chunk').onclick = () => { const was = P.on; if (was) pause(); db.settings.chunk = chunkN() % 3 + 1; store(K.set, db.settings); showWord(); updateInfo(); if (was) play(); };
+$('rd-seek').oninput = e => { if (P.on) pause(); seekTo(+e.target.value); };
+$('rd-ctx').onclick = e => { const s = e.target.closest('span[data-i]'); if (s && !P.on) seekTo(+s.dataset.i); };
+$('rd-close').onclick = () => history.back();
+document.addEventListener('visibilitychange', () => { if (document.hidden && P.on) pause(); else if (!document.hidden) checkShared(); });
+
+// ---------------------------------------------------------------- Hilfen
+function copyText(text, done) {
+  if (NATIVE && NATIVE.copyText) { NATIVE.copyText(text); done(true); return; }
+  const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  ta.remove();
+  if (!ok && navigator.clipboard) { navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); return; }
+  done(ok);
+}
+function openModal(html, init) { $('modal-in').innerHTML = html; $('modal').hidden = false; init && init($('modal-in')); }
+function closeModal() { $('modal').hidden = true; }
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+function toast(msg) { openModal('<p>' + esc(msg) + '</p><div class="btns"><button class="primary" id="t-ok">OK</button></div>', () => { $('t-ok').onclick = closeModal; }); }
+// Text, der per "Teilen" aus einer anderen App kam.
+async function checkShared() {
+  if (!NATIVE || !NATIVE.takeSharedText) return;
+  const t = NATIVE.takeSharedText(); if (!t) return;
+  const err = await addText('', t); if (err) toast(err); else if ((location.hash || '#home') === '#home') render('home');
+}
+window.srShared = checkShared;
+// Prompt fuer ein Verstaendnis-Quiz im Claude-Chat (die App selbst ist offline).
+function quizPrompt(words, wpm) {
+  return 'Ich habe den folgenden Text gerade per Speedreading gelesen (etwa ' + Math.round(wpm) + ' Wörter pro Minute). ' +
+    'Stelle mir bitte nacheinander fünf Verständnisfragen dazu, warte jeweils auf meine Antwort und sag mir am Ende ehrlich, wie viel ich verstanden habe.\n\nTEXT:\n' + words.join(' ');
+}
+
+// ---------------------------------------------------------------- Ansichten
+const view = $('view'), VIEWS = {};
+const TITLES = { home: 'Speedreader', add: 'Text hinzufügen', stats: 'Statistik', settings: 'Einstellungen', info: 'So liest du schneller' };
+VIEWS.home = () => {
+  let h = '';
+  if (!saveOk) h += '<div class="card small bad">Speichern ist fehlgeschlagen. Lösche Texte, die du nicht mehr brauchst.</div>';
+  if (window.SR_TEST) h += '<div class="card small" id="selftest">Selbsttest: ' + SR_TEST.ok + ' OK, ' + SR_TEST.fail + ' Fehler</div>';
+  const t = db.stats[today()];
+  h += '<div class="card"><div class="row"><div class="grow"><div class="big">' + (t ? Math.round(t.ms / 60000) : 0) + ' min</div><div class="muted small">heute gelesen</div></div>' +
+    '<div class="grow"><div class="big">' + (t && t.ms > 5000 ? Math.round(t.words / (t.ms / 60000)) : '–') + '</div><div class="muted small">Wörter pro Minute (echt)</div></div></div></div>';
+  h += '<div class="card"><h2>Deine Texte</h2>' + (db.lib.length ? db.lib.map(x =>
+    '<div class="item"><div class="grow" data-open="' + x.id + '"><div class="t">' + esc(x.title) + '</div><div class="muted small">' + x.count.toLocaleString('de-DE') + ' Wörter · ' +
+    (x.pos >= x.count ? 'gelesen' : x.pos ? Math.round(x.pos / x.count * 100) + ' % · noch ' + fmtMin(estMinutes(x.count - x.pos, db.settings.wpm)) : fmtMin(estMinutes(x.count, db.settings.wpm))) +
+    '</div><div class="pbar"><i style="width:' + Math.min(100, x.pos / x.count * 100) + '%"></i></div></div><button class="ghost small" data-del="' + x.id + '">✕</button></div>').join('')
+    : '<div class="muted small">Noch kein Text.</div>') + '<button class="block primary" id="h-add">+ Text hinzufügen</button></div>';
+  h += '<div class="row"><button class="grow" id="h-stats">Statistik</button><button class="grow" id="h-info">Tipps</button><button class="grow" id="h-set">Einstellungen</button></div>';
+  view.innerHTML = h;
+  view.querySelectorAll('[data-open]').forEach(el => el.onclick = () => openReader(el.dataset.open));
+  view.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const x = db.lib.find(y => y.id === b.dataset.del); if (!x) return;
+    openModal('<h3>Text löschen?</h3><div class="muted small">' + esc(x.title) + '</div><div class="btns"><button class="ghost" id="q-no">Abbrechen</button><button id="q-yes" class="bad">Löschen</button></div>', () => {
+      $('q-no').onclick = closeModal;
+      $('q-yes').onclick = async () => { closeModal(); await Texts.del(x.id); db.lib = db.lib.filter(y => y.id !== x.id); saveLib(); render('home'); };
+    });
+  });
+  $('h-add').onclick = () => go('add'); $('h-stats').onclick = () => go('stats'); $('h-info').onclick = () => go('info'); $('h-set').onclick = () => go('settings');
+};
+VIEWS.add = () => {
+  view.innerHTML = '<div class="card"><h2>Aus einer Datei</h2><div class="muted small">Textdatei (.txt) oder EPUB ohne Kopierschutz.</div><button class="block" id="a-file">Datei auswählen</button></div>' +
+    '<div class="card"><h2>Text einfügen</h2><label class="f" style="margin-top:0">Titel (optional)</label><input type="text" id="a-title">' +
+    '<label class="f">Text</label><textarea id="a-text" placeholder="Text hier einfügen"></textarea>' +
+    '<div class="row" style="margin-top:8px"><button class="grow" id="a-clip">Aus Zwischenablage</button><button class="grow primary" id="a-ok">Hinzufügen</button></div>' +
+    '<div id="a-msg" class="small bad" style="margin-top:6px"></div></div>' +
+    '<div class="muted small">Tipp: In anderen Apps Text markieren, „Teilen“ wählen und Speedreader antippen.</div>';
+  const done = err => { if (err) $('a-msg').textContent = err; else history.back(); };
+  $('a-ok').onclick = async () => done(await addText($('a-title').value, $('a-text').value));
+  $('a-clip').onclick = async () => {
+    let t = '';
+    if (NATIVE && NATIVE.readClipboard) t = NATIVE.readClipboard();
+    else { try { t = await navigator.clipboard.readText(); } catch (e) {} }
+    if (t) $('a-text').value = t; else $('a-msg').textContent = 'Die Zwischenablage ist leer oder nicht lesbar. Bitte von Hand einfügen.';
+  };
+  $('a-file').onclick = () => {
+    $('a-msg').textContent = '';
+    if (NATIVE && NATIVE.pickFile) {
+      window.srFileReady = async () => { const name = NATIVE.takePickedName(), b64 = NATIVE.takePickedFile(); if (b64) { $('a-msg').textContent = 'Datei wird gelesen …'; done(await addFile(name || 'Datei', b64ToBytes(b64))); } };
+      NATIVE.pickFile(); return;
+    }
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.epub,text/plain,application/epub+zip';
+    inp.onchange = async () => { const f = inp.files[0]; if (f) done(await addFile(f.name, new Uint8Array(await f.arrayBuffer()))); };
+    inp.click();
+  };
+};
+VIEWS.stats = () => {
+  const days = Object.keys(db.stats).sort().reverse(), tot = days.reduce((a, d) => ({ ms: a.ms + db.stats[d].ms, words: a.words + db.stats[d].words }), { ms: 0, words: 0 });
+  view.innerHTML = '<div class="card"><div class="row"><div class="grow"><div class="big">' + fmtMin(tot.ms / 60000) + '</div><div class="muted small">insgesamt</div></div>' +
+    '<div class="grow"><div class="big">' + tot.words.toLocaleString('de-DE') + '</div><div class="muted small">Wörter</div></div></div></div>' +
+    '<div class="card"><h2>Tage</h2>' + (days.length ? days.slice(0, 30).map(d => { const s = db.stats[d]; return '<div class="item"><div class="grow">' + d.slice(8, 10) + '.' + d.slice(5, 7) + '.</div>' +
+      '<span class="muted small">' + Math.round(s.ms / 60000) + ' min · ' + s.words.toLocaleString('de-DE') + ' Wörter</span><b>' + (s.ms > 5000 ? Math.round(s.words / (s.ms / 60000)) : '–') + ' WPM</b></div>'; }).join('')
+      : '<div class="muted small">Noch nichts gelesen.</div>') + '</div>' +
+    '<div class="muted small">WPM hier ist das echte Tempo inklusive der Pausen an Satzzeichen. Es liegt deshalb unter der eingestellten Zahl.</div>';
+};
+VIEWS.settings = () => {
+  const s = db.settings;
+  view.innerHTML = '<div class="card"><h2>Lesen</h2><label class="f" style="margin-top:0">Tempo: <b id="s-wv"></b> Wörter pro Minute</label><input type="range" id="s-wpm" min="100" max="900" step="25">' +
+    '<label class="f">Schriftgröße: <b id="s-fv"></b></label><input type="range" id="s-font" min="24" max="48" step="2">' +
+    '<label class="c"><input type="checkbox" id="s-pause"> Pausen an Satzzeichen und Absätzen</label></div>' +
+    '<div class="card"><h2>Tempo-Training</h2><label class="c"><input type="checkbox" id="s-ramp"> Tempo beim Lesen langsam steigern</label>' +
+    '<div class="row" style="margin-top:8px"><div class="grow"><label class="f" style="margin-top:0">+ WPM pro Minute</label><input type="number" class="short" id="s-rpm" inputmode="numeric"></div>' +
+    '<div class="grow"><label class="f" style="margin-top:0">höchstens</label><input type="number" class="short" id="s-rmax" inputmode="numeric"></div></div>' +
+    '<div class="muted small" style="margin-top:6px">Jede Lesesitzung startet beim eingestellten Tempo und wird pro Minute etwas schneller. Der Startwert bleibt, wie er ist.</div></div>' +
+    '<div class="muted small">Speedreader v1.0</div>';
+  $('s-wpm').value = s.wpm; $('s-font').value = s.font; $('s-pause').checked = s.pauses; $('s-ramp').checked = s.ramp; $('s-rpm').value = s.rampPerMin; $('s-rmax').value = s.rampMax;
+  const lab = () => { $('s-wv').textContent = s.wpm; $('s-fv').textContent = s.font; }; lab();
+  const sv = () => { store(K.set, s); lab(); };
+  $('s-wpm').oninput = e => { s.wpm = +e.target.value; sv(); }; $('s-font').oninput = e => { s.font = +e.target.value; sv(); };
+  $('s-pause').onchange = e => { s.pauses = e.target.checked; sv(); }; $('s-ramp').onchange = e => { s.ramp = e.target.checked; sv(); };
+  $('s-rpm').onchange = e => { s.rampPerMin = clamp(+e.target.value || 10, 1, 100); sv(); }; $('s-rmax').onchange = e => { s.rampMax = clamp(+e.target.value || 500, 150, 1200); sv(); };
+};
+VIEWS.info = () => {
+  view.innerHTML = '<div class="card"><h2>So nutzt du die App</h2><ul class="small">' +
+    '<li>Blick auf den farbigen Buchstaben, nicht mitsprechen, auch nicht im Kopf.</li>' +
+    '<li>Starte bei einem Tempo, bei dem du mühelos folgst (für die meisten 250 bis 350), und erhöhe in Schritten von 25.</li>' +
+    '<li>Wenn du den Faden verlierst: anhalten, „Satz“ zurück, etwas langsamer weiter.</li>' +
+    '<li>Kurze Sitzungen von 5 bis 15 Minuten reichen. Die Augen blinzeln beim Wort-für-Wort-Lesen weniger, also Pausen machen.</li>' +
+    '<li>Das Tempo-Training in den Einstellungen zieht dich langsam über deine Wohlfühlgrenze.</li></ul></div>' +
+    '<div class="card"><h2>Verstehen prüfen</h2><div class="small">Die App kann keine Fragen zum Inhalt stellen, sie arbeitet ohne Internet. Der Knopf unten kopiert die zuletzt gelesene Passage samt Auftrag; füg das in einen Claude-Chat ein, dann fragt Claude dich ab.</div>' +
+    '<button class="block" id="i-quiz">Quiz-Auftrag kopieren</button><div id="i-msg" class="small muted" style="margin-top:6px"></div></div>' +
+    '<div class="card"><h2>Ehrliche Einordnung</h2><ul class="small">' +
+    '<li>Die Forschung ist ernüchternd: Bei sehr hohem Tempo sinkt das Verständnis. Für anspruchsvolle Texte gibt es keinen Trick, der beides liefert.</li>' +
+    '<li>Sinnvoll ist die Methode für Texte, die du überfliegen oder schnell wiederholen willst, und um das Mitsprechen im Kopf abzutrainieren.</li>' +
+    '<li>Miss dich am Verstehen, nicht an der WPM-Zahl.</li></ul></div>';
+  $('i-quiz').onclick = () => {
+    const L = window.lastRead;
+    if (!L || L.words.length < 30) { $('i-msg').textContent = 'Lies erst ein Stück, dann steht hier die Passage bereit.'; return; }
+    copyText(quizPrompt(L.words, L.wpm), ok => { $('i-msg').textContent = ok ? 'Kopiert ✓ (' + L.words.length + ' Wörter). Jetzt in einen Claude-Chat einfügen.' : 'Kopieren fehlgeschlagen.'; });
+  };
+};
+function render(name) {
+  if (!VIEWS[name]) name = 'home';
+  $('title').textContent = TITLES[name]; $('back').style.visibility = name === 'home' ? 'hidden' : 'visible';
+  VIEWS[name](); window.scrollTo(0, 0);
+}
+function go(name) { location.hash = name; }
+function route() {
+  const h = (location.hash || '#home').slice(1);
+  if (P.item && h !== 'read') {
+    // zuletzt gelesene Passage (hoechstens 1200 Woerter) fuer das Quiz merken
+    if (P.i > P.sessFrom) window.lastRead = { words: P.words.slice(Math.max(P.sessFrom, P.i - 1200), P.i), wpm: P.sessMs > 5000 ? P.sessWords / (P.sessMs / 60000) : P.wpm };
+    closeReader();
+  }
+  if (h === 'read') { if (!P.item) { history.replaceState(null, '', '#home'); render('home'); } return; }
+  render(h);
+}
+$('back').onclick = () => history.back();
+window.addEventListener('hashchange', route);
+
+// ---------------------------------------------------------------- Selbsttest
+async function srTests() {
+  let ok = 0, fail = 0;
+  const t = (name, cond, info) => { if (cond) { ok++; console.log('OK   ' + name); } else { fail++; console.error('FAIL ' + name + (info !== undefined ? ' -> ' + info : '')); } };
+  const tk = tokenize('Eins zwei.\n\nDrei  vier\nfünf.\r\n\r\n\r\nSechs');
+  t('tokenize: Wörter', tk.words.join('|') === 'Eins|zwei.|Drei|vier|fünf.|Sechs', tk.words.join('|'));
+  t('tokenize: Absatzanfänge', tk.para.has(2) && tk.para.has(5) && tk.para.size === 2, Array.from(tk.para).join());
+  t('tokenize: leerer Text', tokenize('  \n\n ').words.length === 0);
+  const long = splitLong('Donaudampfschifffahrtsgesellschaftskapitän');
+  t('splitLong teilt lange Wörter', long.length === 3 && long[0].endsWith('-') && long.join('').replace(/-/g, '') === 'Donaudampfschifffahrtsgesellschaftskapitän', long.join('|'));
+  t('orpIndex nach Wortlänge', orpIndex('a') === 0 && orpIndex('Haus') === 1 && orpIndex('Fenster') === 2 && orpIndex('Wissenschaft') === 3 && orpIndex('Wissenschaftler') === 4);
+  t('orpIndex überspringt Anführungszeichen', orpIndex('„Haus“,') === 2 && orpIndex('(und)') === 2);
+  t('delayFactor: normales Wort', delayFactor('Haus', false, true) === 1);
+  t('delayFactor: Komma, Satzende, Absatz', delayFactor('Haus,', false, true) === 1.5 && delayFactor('Haus.', false, true) === 2.2 && delayFactor('Haus', true, true) === 2.5);
+  t('delayFactor: Satzende mit Anführungszeichen', delayFactor('Haus.“', false, true) === 2.2);
+  t('delayFactor: lange Wörter und Zahlen', Math.abs(delayFactor('Wissenschaft', false, true) - 1.16) < 1e-9 && delayFactor('1984', false, true) === 1.4);
+  t('delayFactor: Pausen abschaltbar', delayFactor('Haus.', true, false) === 1);
+  const sw = 'Das ist eins. Und das ist zwei! Hier drei'.split(' ');
+  t('sentenceStart: mitten im Satz', sentenceStart(sw, 5) === 3 && sentenceStart(sw, 8) === 7);
+  t('sentenceStart: am Satzanfang einen Satz zurück', sentenceStart(sw, 3) === 0 && sentenceStart(sw, 0) === 0);
+  t('estMinutes / fmtMin', fmtMin(estMinutes(3000, 300)) === '13 min' && fmtMin(0.4) === '<1 min' && fmtMin(120) === '2 h');
+  t('resolvePath', resolvePath('OEBPS', 'text/ch%201.xhtml#a') === 'OEBPS/text/ch 1.xhtml' && resolvePath('OEBPS/x', '../img/a.png') === 'OEBPS/img/a.png' && resolvePath('', 'c.opf') === 'c.opf');
+  t('htmlToText: Absätze, ohne Skripte', htmlToText('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Titel</h1><p>Erster  <b>Absatz</b>.</p><script>x()</sc' + 'ript><div><p>Zweiter.</p></div></body></html>') === 'Titel\n\nErster Absatz.\n\nZweiter.');
+  t('decodeText: UTF-8 und Windows-1252', decodeText(new Uint8Array([0xC3, 0xA4])) === 'ä' && decodeText(new Uint8Array([0xE4, 0x62])) === 'äb');
+  t('b64ToBytes', Array.from(b64ToBytes('SGk=')).join() === '72,105');
+
+  // EPUB: kleine ZIP-Datei im Speicher bauen (ein Eintrag unkomprimiert, der Rest komprimiert, falls moeglich)
+  const enc = new TextEncoder(), canDeflate = typeof CompressionStream !== 'undefined';
+  const deflate = async b => new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  const mkZip = async files => {
+    const parts = [], cd = []; let off = 0;
+    const le = (n, len) => { const a = []; for (let i = 0; i < len; i++) a.push(n >>> (8 * i) & 255); return a; };
+    for (const f of files) {
+      const name = enc.encode(f.name), raw = enc.encode(f.data), comp = f.store || !canDeflate ? raw : await deflate(raw), m = comp === raw ? 0 : 8;
+      const lh = [].concat(le(0x04034b50, 4), le(20, 2), le(0, 2), le(m, 2), le(0, 4), le(0, 4), le(comp.length, 4), le(raw.length, 4), le(name.length, 2), le(0, 2));
+      parts.push(new Uint8Array(lh), name, comp);
+      cd.push(new Uint8Array([].concat(le(0x02014b50, 4), le(20, 2), le(20, 2), le(0, 2), le(m, 2), le(0, 4), le(0, 4), le(comp.length, 4), le(raw.length, 4), le(name.length, 2), le(0, 2), le(0, 2), le(0, 2), le(0, 2), le(0, 4), le(off, 4))), name);
+      off += lh.length + name.length + comp.length;
+    }
+    const cdLen = cd.reduce((a, x) => a + x.length, 0);
+    const all = parts.concat(cd, [new Uint8Array([].concat(le(0x06054b50, 4), le(0, 4), le(files.length, 2), le(files.length, 2), le(cdLen, 4), le(off, 4), le(0, 2)))]);
+    const out = new Uint8Array(all.reduce((a, x) => a + x.length, 0)); let p = 0; all.forEach(x => { out.set(x, p); p += x.length; }); return out;
+  };
+  const ch = (h, p) => '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head><body><h1>' + h + '</h1><p>' + p + '</p></body></html>';
+  const epubFiles = [
+    { name: 'mimetype', data: 'application/epub+zip', store: true },
+    { name: 'META-INF/container.xml', data: '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>' },
+    { name: 'OEBPS/content.opf', data: '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Testbuch</dc:title></metadata><manifest><item id="b" href="text/kap2.xhtml" media-type="application/xhtml+xml"/><item id="a" href="text/kap%201.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/><itemref idref="b"/></spine></package>' },
+    { name: 'OEBPS/text/kap 1.xhtml', data: ch('Kapitel 1', 'Es war einmal ein Bär.') },
+    { name: 'OEBPS/text/kap2.xhtml', data: ch('Kapitel 2', 'Er hieß Bruno.') }];
+  let ep = null, err = '';
+  try { ep = await parseEpub(await mkZip(epubFiles)); } catch (e) { err = e.message; }
+  t('EPUB: Titel und Kapitel in Lesereihenfolge' + (canDeflate ? ' (komprimiert)' : ' (unkomprimiert)'), ep && ep.title === 'Testbuch' && ep.text === 'Kapitel 1\n\nEs war einmal ein Bär.\n\nKapitel 2\n\nEr hieß Bruno.', err || (ep && ep.text));
+  err = ''; try { await parseEpub(await mkZip(epubFiles.concat([{ name: 'META-INF/encryption.xml', data: '<encryption><EncryptedData><EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes256-cbc"/></EncryptedData></encryption>' }]))); } catch (e) { err = e.message; }
+  t('EPUB mit Kopierschutz wird abgelehnt', /kopiergeschützt/.test(err), err);
+  err = ''; try { await parseEpub(enc.encode('das ist keine zip datei, nur text der lang genug ist')); } catch (e) { err = e.message; }
+  t('Keine ZIP-Datei: klare Meldung', err === 'Keine ZIP-Datei', err);
+  t('Quiz-Auftrag enthält Text und Tempo', quizPrompt(['Hallo', 'Welt'], 312.4).includes('etwa 312 Wörter') && quizPrompt(['Hallo', 'Welt'], 300).endsWith('TEXT:\nHallo Welt'));
+  console.log('Selbsttest: ' + ok + ' OK, ' + fail + ' Fehler');
+  return { ok, fail };
+}
+window.srTests = srTests;
+
+(async () => {
+  await Texts.open();
+  if (!db.lib.length && !load('speedreader.seeded.v1', false)) { await addText('Kurze Einführung', SAMPLE); store('speedreader.seeded.v1', true); }
+  if (/[?&]debug=1/.test(location.search)) window.SR_TEST = await srTests();
+  route(); checkShared();
+})();
+</script>
+</body>
+</html>
