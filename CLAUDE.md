@@ -55,3 +55,10 @@ EPUB-Import (im Browser nur mit dem selbst gebauten Test-EPUB geprüft, mit
 keinem echten Buch), IndexedDB unter `file://`, Zwischenablage lesen,
 "Teilen" aus einer anderen App (kalt gestartet und bei laufender App), ob
 die Wortanzeige bei hohem Tempo ruckelfrei bleibt.
+
+v1.1 (code 2, 2026-11-15): Augen-Gym auf Daniels Wunsch als Bereich im
+Speedreader (Idee 20): `gymSchulte`, `gymSpanne`, `gymSprung`, Regeln
+`spanStep`, `sprungNext`, `schulteRecord`, eigene Vollbild-Ansicht `#gym`
+mit Hash `gymrun`. Selbsttest 30/30; alle drei Übungen im Browser
+durchgespielt. v1.0 ist seit 15.11. auf dem Pixel installiert, aber noch
+ungetestet; v1.1 liegt als `dist/speedreader-1.1.apk` bereit.

@@ -5,7 +5,7 @@ Visual Presentation") mit einstellbarem Tempo. Texte kommen aus der
 Zwischenablage, einer Textdatei, einem EPUB ohne Kopierschutz oder per
 "Teilen" aus einer anderen App.
 
-APK: [dist/speedreader-1.0.apk](dist/speedreader-1.0.apk)
+APK: [dist/speedreader-1.1.apk](dist/speedreader-1.1.apk)
 
 ## Funktionen
 
@@ -66,3 +66,17 @@ Die Forschung zu RSVP und Speedreading (z. B. Rayner et al. 2016) ist
 ernüchternd: Bei sehr hohem Tempo sinkt das Verständnis. Die App ist für
 Texte gedacht, die man überfliegen oder wiederholen will, und zum Abtrainieren
 des inneren Mitsprechens. Sie verspricht kein Verständnis bei 800 WPM.
+
+## Augen-Gym
+
+Drei kurze Übungen, erreichbar von der Startseite. Stände liegen in
+`speedreader.gym.v1`.
+
+| Übung | Ablauf | Anpassung | Ergebnis |
+|---|---|---|---|
+| Schulte-Tabelle | Zahlen 1 bis n² der Reihe nach antippen, Blick in der Mitte; 3×3 bis 7×7 | Größe wählbar | Zeit ab der 1, Bestzeit je Größe, Fehlgriffe |
+| Blickspanne | Ziffernreihe blitzt 300 ms auf, dann eintippen; 10 Durchgänge | zwei richtige in Folge: ein Zeichen mehr; Fehler: eins weniger (3 bis 12) | längste richtige Reihe |
+| Blicksprung | 40 Ziffern abwechselnd am linken und rechten Rand, bei der Zielziffer tippen (zählt auch noch während der nächsten Ziffer) | ab 90 % Treffern und höchstens einem Fehlalarm 10 % schneller, unter 70 % oder ab vier Fehlalarmen 15 % langsamer (250 bis 1200 ms) | Treffer, Fehlalarme, Tempo |
+
+Einordnung: Solche Übungen verbessern die geübte Aufgabe. Dass sie das
+Lesetempo im Alltag steigern, ist nicht gut belegt; die App sagt das auch.

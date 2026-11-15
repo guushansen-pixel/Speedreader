@@ -63,6 +63,25 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
 #rd-ctl { display: flex; gap: 6px; padding: 6px 10px 0; }
 #rd-ctl button { flex: 1; padding: 12px 4px; font-size: 15px; }
 #rd-play { flex: 2 !important; }
+/* Augen-Gym: Vollbild */
+#gym { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
+  padding: calc(var(--sat) + 6px) 14px calc(var(--sab) + 14px); touch-action: manipulation; }
+#gym[hidden] { display: none; }
+#g-top { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+#g-close { background: none; border: 0; font-size: 28px; padding: 0 10px 4px 0; }
+#g-title { flex: 1; font-weight: 600; }
+#g-body { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.center { text-align: center; }
+.sgrid { display: grid; gap: 6px; margin: 14px 0; }
+.sgrid button { padding: 0; aspect-ratio: 1; font-weight: 700; }
+.sgrid button.hit { opacity: .22; } .sgrid button.err { background: #4A2622; }
+.flash { font-size: 44px; font-weight: 700; text-align: center; letter-spacing: .12em; min-height: 70px; font-variant-numeric: tabular-nums; }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.keys button { font-size: 22px; padding: 13px 0; }
+#jump { flex: 1; position: relative; border: 1px solid var(--line); border-radius: 14px; margin: 10px 0; user-select: none; overflow: hidden; }
+#jump span { position: absolute; font-size: 46px; font-weight: 700; line-height: 1; }
+#jump.ok { border-color: var(--good); } #jump.no { border-color: var(--bad); }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 #modal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
 #modal[hidden] { display: none; }
 #modal > div { background: var(--card); width: 100%; max-width: 560px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(var(--sab) + 16px); }
@@ -84,6 +103,10 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
     <button id="rd-sent" aria-label="Satz zurück">⏮ Satz</button><button id="rd-slow">−25</button>
     <button id="rd-play" class="primary">▶</button><button id="rd-fast">+25</button><button id="rd-chunk">1</button>
   </div>
+</div>
+<div id="gym" hidden>
+  <div id="g-top"><button id="g-close" aria-label="Schließen">‹</button><span id="g-title"></span></div>
+  <div id="g-body"></div>
 </div>
 <div id="modal" hidden><div id="modal-in"></div></div>
 
@@ -384,9 +407,132 @@ function quizPrompt(words, wpm) {
     'Stelle mir bitte nacheinander fünf Verständnisfragen dazu, warte jeweils auf meine Antwort und sag mir am Ende ehrlich, wie viel ich verstanden habe.\n\nTEXT:\n' + words.join(' ');
 }
 
+// ---------------------------------------------------------------- Augen-Gym
+// Drei kurze Uebungen fuer Blickfeld und Blicksprünge. Reine Regeln zuerst, dann der Ablauf.
+const KG = 'speedreader.gym.v1';
+const gym = Object.assign({ schulte: {}, spanne: { level: 4, best: 0, n: 0 }, sprung: { ms: 700, best: 1200, n: 0 } }, load(KG, {}));
+function saveGym() { store(KG, gym); }
+function shuffled(n, rnd) { const a = []; for (let i = 1; i <= n; i++) a.push(i); for (let i = n - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+// Blickspanne: nach zwei richtigen in Folge ein Zeichen mehr, nach einem Fehler eins weniger (3 bis 12).
+function spanStep(st, ok) { if (!ok) return { len: Math.max(3, st.len - 1), run: 0 }; return st.run + 1 >= 2 ? { len: Math.min(12, st.len + 1), run: 0 } : { len: st.len, run: st.run + 1 }; }
+// Blicksprung: Tempo fuer das naechste Mal. Schneller bei mindestens 90 % Treffern und hoechstens einem
+// Fehlalarm, langsamer unter 70 % oder ab vier Fehlalarmen.
+function sprungNext(ms, hits, targets, fa) {
+  const rate = targets ? hits / targets : 0;
+  if (rate >= 0.9 && fa <= 1) return Math.max(250, Math.round(ms * 0.9 / 10) * 10);
+  if (rate < 0.7 || fa >= 4) return Math.min(1200, Math.round(ms * 1.15 / 10) * 10);
+  return ms;
+}
+function fmtSec(ms) { return (ms / 1000).toFixed(1).replace('.', ',') + ' s'; }
+function schulteRecord(rec, ms) { return { best: rec && rec.best < ms ? rec.best : ms, last: ms, n: (rec ? rec.n : 0) + 1 }; }
+
+const G = { active: false, token: 0 };
+const gBody = html => { $('g-body').innerHTML = html; };
+function gLater(ms, fn) { const tok = G.token; setTimeout(() => { if (G.active && tok === G.token) fn(); }, ms); }
+function gOpen(title) { G.active = true; G.token++; $('g-title').textContent = title; $('gym').hidden = false; if (location.hash !== '#gymrun') location.hash = 'gymrun'; }
+function gClose() { G.active = false; G.token++; $('gym').hidden = true; }
+function gResult(html, again) {
+  G.token++; gBody('<div class="center">' + html + '</div><button class="primary block" id="g-again">Noch einmal</button><button class="block" id="g-done">Fertig</button>');
+  $('g-again').onclick = again; $('g-done').onclick = () => history.back();
+}
+$('g-close').onclick = () => history.back();
+
+// Schulte-Tabelle: Blick in die Mitte, Zahlen der Reihe nach antippen. Die Zeit laeuft ab der 1.
+function gymSchulte(size) {
+  gOpen('Schulte-Tabelle ' + size + '×' + size);
+  const total = size * size, nums = shuffled(total, Math.random); let next = 1, errors = 0, t0 = 0;
+  gBody('<div class="muted small center">Blick auf die Mitte der Tabelle. Tippe die Zahlen von 1 bis ' + total + ' der Reihe nach an, möglichst ohne die Augen zu bewegen.</div>' +
+    '<div class="sgrid" id="sg" style="grid-template-columns:repeat(' + size + ',1fr);font-size:' + Math.min(34, Math.round(150 / size)) + 'px">' + nums.map(n => '<button data-n="' + n + '">' + n + '</button>').join('') + '</div>' +
+    '<div class="center muted" id="g-next">Nächste Zahl: 1</div>');
+  $('sg').addEventListener('pointerdown', e => {
+    const b = e.target.closest('button'); if (!b || !G.active) return; e.preventDefault();
+    const n = +b.dataset.n;
+    if (n !== next) { if (n > next) { errors++; b.classList.add('err'); setTimeout(() => b.classList.remove('err'), 250); } return; }
+    if (next === 1) t0 = performance.now();
+    b.classList.add('hit'); next++;
+    if (next <= total) { $('g-next').textContent = 'Nächste Zahl: ' + next; return; }
+    const ms = performance.now() - t0; gym.schulte[size] = schulteRecord(gym.schulte[size], ms); saveGym();
+    gResult('<div class="muted small">Zeit</div><div class="big">' + fmtSec(ms) + '</div><div class="muted small">Bestzeit ' + fmtSec(gym.schulte[size].best) + ' · ' + errors + ' Fehlgriffe</div>', () => gymSchulte(size));
+  });
+}
+// Blickspanne: eine Zeichenreihe blitzt kurz auf, danach eintippen. Die Reihe waechst mit dem Erfolg.
+function gymSpanne() {
+  gOpen('Blickspanne');
+  let st = { len: gym.spanne.level, run: 0 }, trial = 0, maxOk = 0, okCount = 0; const TR = 10;
+  const round = () => {
+    if (trial >= TR) {
+      gym.spanne = { level: st.len, best: Math.max(gym.spanne.best, maxOk), n: gym.spanne.n + 1 }; saveGym();
+      gResult('<div class="muted small">Längste richtig erkannte Reihe</div><div class="big">' + (maxOk || '–') + ' Zeichen</div><div class="muted small">' + okCount + ' von ' + TR + ' richtig · Bestwert ' + gym.spanne.best + '</div>', gymSpanne);
+      return;
+    }
+    trial++; let s = ''; while (s.length < st.len) s += Math.floor(Math.random() * 10);
+    gBody('<div class="flash" id="fl">+</div><div class="muted small center">Durchgang ' + trial + ' von ' + TR + ' · ' + st.len + ' Zeichen · Blick auf das Kreuz</div>');
+    gLater(800, () => {
+      const fl = $('fl'); fl.textContent = s; fl.style.fontSize = Math.min(44, Math.round(300 / s.length)) + 'px';
+      gLater(300, () => input(s));
+    });
+  };
+  const input = s => {
+    let typed = '';
+    gBody('<div class="flash" id="fl">&nbsp;</div><div class="keys">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0].map(k => '<button data-k="' + k + '">' + k + '</button>').join('') + '</div>');
+    $('g-body').querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+      if (typed.length >= s.length) return;
+      if (b.dataset.k === '⌫') typed = typed.slice(0, -1); else typed += b.dataset.k;
+      $('fl').textContent = typed || ' ';
+      if (typed.length < s.length) return;
+      const ok = typed === s; $('fl').textContent = ok ? '✓' : s;
+      if (ok) { okCount++; maxOk = Math.max(maxOk, s.length); }
+      st = spanStep(st, ok); gLater(ok ? 600 : 1300, round);
+    });
+  };
+  round();
+}
+// Blicksprung: Ziffern springen zwischen links und rechts. Bei der Zielziffer tippen.
+function gymSprung() {
+  gOpen('Blicksprung');
+  const ms = gym.sprung.ms, N = 40, target = 3 + Math.floor(Math.random() * 7);
+  gBody('<p class="center">Ziffern springen zwischen dem linken und rechten Rand. Tippe jedes Mal irgendwo ins Feld, wenn eine <b style="font-size:26px">' + target + '</b> erscheint.</p>' +
+    '<div class="muted small center">40 Sprünge · eine Ziffer alle ' + ms + ' ms</div><button class="primary block" id="g-go">Start</button>');
+  $('g-go').onclick = () => {
+    G.token++;
+    gBody('<div class="muted small center">Tippen bei ' + target + '</div><div id="jump"><span id="jd"></span></div>');
+    let i = 0, hits = 0, targets = 0, fa = 0, open = null;
+    const flashBox = cls => { const j = $('jump'); if (!j) return; j.className = cls; setTimeout(() => { if ($('jump')) $('jump').className = ''; }, 180); };
+    $('jump').addEventListener('pointerdown', e => {
+      e.preventDefault();
+      // gilt auch noch waehrend der naechsten Ziffer (die Hand ist langsamer als das Auge)
+      if (open && !open.hit && i - 1 <= open.until) { open.hit = true; hits++; flashBox('ok'); } else { fa++; flashBox('no'); }
+    });
+    const step = () => {
+      if (i >= N) {
+        const next = sprungNext(ms, hits, targets, fa); gym.sprung = { ms: next, best: Math.min(gym.sprung.best, targets && hits / targets >= 0.9 && fa <= 1 ? ms : gym.sprung.best), n: gym.sprung.n + 1 }; saveGym();
+        gResult('<div class="muted small">Treffer</div><div class="big">' + hits + ' von ' + targets + '</div><div class="muted small">' + fa + ' Fehlalarme · Tempo ' + ms + ' ms' +
+          (next !== ms ? ' · nächstes Mal ' + next + ' ms' : '') + '</div>', gymSprung);
+        return;
+      }
+      let d; if (Math.random() < 0.25) { d = target; targets++; open = { until: i + 1, hit: false }; } else { do { d = Math.floor(Math.random() * 10); } while (d === target); }
+      const el = $('jd'); el.textContent = d; el.style.left = i % 2 ? 'auto' : '6%'; el.style.right = i % 2 ? '6%' : 'auto'; el.style.top = 12 + Math.random() * 66 + '%';
+      i++; gLater(ms, step);
+    };
+    step();
+  };
+}
+
 // ---------------------------------------------------------------- Ansichten
 const view = $('view'), VIEWS = {};
-const TITLES = { home: 'Speedreader', add: 'Text hinzufügen', stats: 'Statistik', settings: 'Einstellungen', info: 'So liest du schneller' };
+VIEWS.gym = () => {
+  const sb = n => gym.schulte[n] ? fmtSec(gym.schulte[n].best) : '–';
+  view.innerHTML = '<div class="card"><h2>Schulte-Tabelle</h2><div class="small">Zahlen der Reihe nach antippen, den Blick dabei in der Mitte lassen. Übt, mit einem Blick mehr zu erfassen.</div>' +
+    '<div class="chips">' + [3, 4, 5, 6, 7].map(n => '<button data-s="' + n + '">' + n + '×' + n + '<div class="muted small">' + sb(n) + '</div></button>').join('') + '</div></div>' +
+    '<div class="card"><h2>Blickspanne</h2><div class="small">Eine Ziffernreihe blitzt kurz auf, du tippst sie ein. Zehn Durchgänge, die Reihe wird länger, wenn du triffst.</div>' +
+    '<div class="muted small" style="margin-top:6px">Aktuelle Länge ' + gym.spanne.level + ' · Bestwert ' + (gym.spanne.best || '–') + '</div><button class="block primary" id="y-span">Start</button></div>' +
+    '<div class="card"><h2>Blicksprung</h2><div class="small">Ziffern springen zwischen links und rechts, du tippst bei der Zielziffer. Das Tempo passt sich an.</div>' +
+    '<div class="muted small" style="margin-top:6px">Aktuelles Tempo ' + gym.sprung.ms + ' ms' + (gym.sprung.best < 1200 ? ' · schnellstes sauberes ' + gym.sprung.best + ' ms' : '') + '</div><button class="block primary" id="y-jump">Start</button></div>' +
+    '<div class="muted small">Ehrlich eingeordnet: Diese Übungen machen dich in genau diesen Übungen besser. Ob sie das Lesen im Alltag beschleunigen, ist nicht gut belegt. Als Aufwärmen vor dem Lesen taugen sie.</div>';
+  view.querySelectorAll('[data-s]').forEach(b => b.onclick = () => gymSchulte(+b.dataset.s));
+  $('y-span').onclick = gymSpanne; $('y-jump').onclick = gymSprung;
+};
+const TITLES = { gym: 'Augen-Gym', home: 'Speedreader', add: 'Text hinzufügen', stats: 'Statistik', settings: 'Einstellungen', info: 'So liest du schneller' };
 VIEWS.home = () => {
   let h = '';
   if (!saveOk) h += '<div class="card small bad">Speichern ist fehlgeschlagen. Lösche Texte, die du nicht mehr brauchst.</div>';
@@ -399,6 +545,7 @@ VIEWS.home = () => {
     (x.pos >= x.count ? 'gelesen' : x.pos ? Math.round(x.pos / x.count * 100) + ' % · noch ' + fmtMin(estMinutes(x.count - x.pos, db.settings.wpm)) : fmtMin(estMinutes(x.count, db.settings.wpm))) +
     '</div><div class="pbar"><i style="width:' + Math.min(100, x.pos / x.count * 100) + '%"></i></div></div><button class="ghost small" data-del="' + x.id + '">✕</button></div>').join('')
     : '<div class="muted small">Noch kein Text.</div>') + '<button class="block primary" id="h-add">+ Text hinzufügen</button></div>';
+  h += '<button class="block" id="h-gym" style="margin-bottom:10px">Augen-Gym: Blickfeld und Blicksprünge üben</button>';
   h += '<div class="row"><button class="grow" id="h-stats">Statistik</button><button class="grow" id="h-info">Tipps</button><button class="grow" id="h-set">Einstellungen</button></div>';
   view.innerHTML = h;
   view.querySelectorAll('[data-open]').forEach(el => el.onclick = () => openReader(el.dataset.open));
@@ -409,6 +556,7 @@ VIEWS.home = () => {
       $('q-yes').onclick = async () => { closeModal(); await Texts.del(x.id); db.lib = db.lib.filter(y => y.id !== x.id); saveLib(); render('home'); };
     });
   });
+  $('h-gym').onclick = () => go('gym');
   $('h-add').onclick = () => go('add'); $('h-stats').onclick = () => go('stats'); $('h-info').onclick = () => go('info'); $('h-set').onclick = () => go('settings');
 };
 VIEWS.add = () => {
@@ -455,7 +603,7 @@ VIEWS.settings = () => {
     '<div class="row" style="margin-top:8px"><div class="grow"><label class="f" style="margin-top:0">+ WPM pro Minute</label><input type="number" class="short" id="s-rpm" inputmode="numeric"></div>' +
     '<div class="grow"><label class="f" style="margin-top:0">höchstens</label><input type="number" class="short" id="s-rmax" inputmode="numeric"></div></div>' +
     '<div class="muted small" style="margin-top:6px">Jede Lesesitzung startet beim eingestellten Tempo und wird pro Minute etwas schneller. Der Startwert bleibt, wie er ist.</div></div>' +
-    '<div class="muted small">Speedreader v1.0</div>';
+    '<div class="muted small">Speedreader v1.1</div>';
   $('s-wpm').value = s.wpm; $('s-font').value = s.font; $('s-pause').checked = s.pauses; $('s-ramp').checked = s.ramp; $('s-rpm').value = s.rampPerMin; $('s-rmax').value = s.rampMax;
   const lab = () => { $('s-wv').textContent = s.wpm; $('s-fv').textContent = s.font; }; lab();
   const sv = () => { store(K.set, s); lab(); };
@@ -496,6 +644,8 @@ function route() {
     closeReader();
   }
   if (h === 'read') { if (!P.item) { history.replaceState(null, '', '#home'); render('home'); } return; }
+  if (G.active && h !== 'gymrun') gClose();
+  if (h === 'gymrun') { if (!G.active) { history.replaceState(null, '', '#gym'); render('gym'); } return; }
   render(h);
 }
 $('back').onclick = () => history.back();
@@ -558,6 +708,17 @@ async function srTests() {
   t('EPUB mit Kopierschutz wird abgelehnt', /kopiergeschützt/.test(err), err);
   err = ''; try { await parseEpub(enc.encode('das ist keine zip datei, nur text der lang genug ist')); } catch (e) { err = e.message; }
   t('Keine ZIP-Datei: klare Meldung', err === 'Keine ZIP-Datei', err);
+  // Augen-Gym
+  let sd = 7; const rnd = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };
+  const sh = shuffled(25, rnd);
+  t('shuffled: jede Zahl genau einmal, gemischt', sh.length === 25 && sh.slice().sort((a, b) => a - b).every((v, i) => v === i + 1) && sh.join() !== shuffled(25, () => 0.999999).join());
+  t('spanStep: zwei richtige -> länger', JSON.stringify(spanStep({ len: 4, run: 0 }, true)) === '{"len":4,"run":1}' && JSON.stringify(spanStep({ len: 4, run: 1 }, true)) === '{"len":5,"run":0}');
+  t('spanStep: Fehler -> kürzer, Grenzen 3 und 12', spanStep({ len: 5, run: 1 }, false).len === 4 && spanStep({ len: 3, run: 0 }, false).len === 3 && spanStep({ len: 12, run: 1 }, true).len === 12);
+  t('sprungNext: sauber -> schneller', sprungNext(700, 9, 10, 1) === 630 && sprungNext(260, 10, 10, 0) === 250);
+  t('sprungNext: zu viele Fehler -> langsamer', sprungNext(600, 6, 10, 0) === 690 && sprungNext(600, 10, 10, 4) === 690 && sprungNext(1150, 0, 10, 0) === 1200);
+  t('sprungNext: dazwischen bleibt das Tempo', sprungNext(700, 8, 10, 2) === 700 && sprungNext(700, 10, 10, 2) === 700);
+  t('schulteRecord hält die Bestzeit', schulteRecord(null, 9000).best === 9000 && schulteRecord({ best: 8000, n: 2 }, 9000).best === 8000 && schulteRecord({ best: 8000, n: 2 }, 7000).best === 7000 && schulteRecord({ best: 8000, n: 2 }, 7000).n === 3);
+  t('fmtSec', fmtSec(12340) === '12,3 s');
   t('Quiz-Auftrag enthält Text und Tempo', quizPrompt(['Hallo', 'Welt'], 312.4).includes('etwa 312 Wörter') && quizPrompt(['Hallo', 'Welt'], 300).endsWith('TEXT:\nHallo Welt'));
   console.log('Selbsttest: ' + ok + ' OK, ' + fail + ' Fehler');
   return { ok, fail };

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1 (code 2) – 2026-11-15
+
+- Augen-Gym: Schulte-Tabelle (3×3 bis 7×7), Blickspanne und Blicksprung,
+  jeweils mit Bestwerten und angepasster Schwierigkeit.
+
 ## 1.0 (code 1) – 2026-11-15
 
 Erste Version.
