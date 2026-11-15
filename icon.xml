@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher-Icon fuer den Speedreader: drei Textzeilen, die mittlere mit
+     farbigem Blickpunkt, rechts zwei Tempo-Pfeile. 108x108, Motiv innerhalb
+     von Radius 31 um die Mitte (54,54), damit die runde Launcher-Maske
+     nichts abschneidet. Hintergrundfarbe kommt per -IconBackground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Zeilen oben und unten (gedimmt) -->
+    <path android:fillColor="#3A4656" android:pathData="M30,36 h34 v5 h-34 z" />
+    <path android:fillColor="#3A4656" android:pathData="M30,67 h28 v5 h-28 z" />
+
+    <!-- Mittlere Zeile: Wort mit Blickpunkt -->
+    <path android:fillColor="#E8EDF2" android:pathData="M27,50 h11 v8 h-11 z" />
+    <path android:fillColor="#F08A5D" android:pathData="M40,50 h6 v8 h-6 z" />
+    <path android:fillColor="#E8EDF2" android:pathData="M48,50 h16 v8 h-16 z" />
+
+    <!-- Tempo-Pfeile -->
+    <path android:fillColor="#3FB6A8" android:pathData="M68,46 l8,8 l-8,8 z" />
+    <path android:fillColor="#3FB6A8" android:pathData="M76,46 l8,8 l-8,8 z" />
+</vector>
