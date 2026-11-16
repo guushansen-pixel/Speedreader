@@ -5,7 +5,7 @@ Visual Presentation") mit einstellbarem Tempo. Texte kommen aus der
 Zwischenablage, einer Textdatei, einem EPUB ohne Kopierschutz oder per
 "Teilen" aus einer anderen App.
 
-APK: [dist/speedreader-1.1.apk](dist/speedreader-1.1.apk)
+APK: [dist/speedreader-1.2.apk](dist/speedreader-1.2.apk)
 
 ## Funktionen
 
@@ -80,3 +80,36 @@ Drei kurze Übungen, erreichbar von der Startseite. Stände liegen in
 
 Einordnung: Solche Übungen verbessern die geübte Aufgabe. Dass sie das
 Lesetempo im Alltag steigern, ist nicht gut belegt; die App sagt das auch.
+
+## Abend-Farbfilter und Fokus-Lesen
+
+- **Abend-Farbfilter:** eine Ebene über der ganzen App, die jede Farbe mit
+  einem warmen, dunkleren Ton multipliziert (`mix-blend-mode: multiply`). Bei
+  voller Stärke bleibt vom Blau ein Zehntel, vom Grün die Hälfte, und alles
+  wird 30 % dunkler. Einstellungen: aus, immer an, oder automatisch nach
+  Uhrzeit (steigt von "Beginn" bis "volle Stärke" an, Standard 19 bis 22 Uhr,
+  und bleibt bis 6 Uhr). Einen Lichtsensor kann die App nicht abfragen; der
+  Filter richtet sich deshalb nur nach der Uhr. Ob Blaufilter das Einschlafen
+  verbessern, ist in Studien umstritten; die App sagt das in den
+  Einstellungen.
+- **Fokus-Lesen:** leises, live erzeugtes Rauschen (tief oder hell), solange
+  der Leser offen ist. Umschalten in den Einstellungen oder im Leser über ♪.
+
+## Seiten, Lesezeichen, Kapitel
+
+- **Seiten:** Eine Seite sind 250 Wörter (`PAGE`). Der Leser zeigt "Seite x
+  von y"; über ☰ springt man zu einer Seitenzahl. Echte Buchseiten gibt es
+  nicht, die Zahl ist dafür unabhängig von Schriftgröße und Gerät.
+- **Lesezeichen:** 🔖 setzt eins an der aktuellen Stelle oder entfernt das
+  dort liegende (im Umkreis von 25 Wörtern). Liste unter ☰ mit Textanfang,
+  Seite und Datum.
+- **Kapitel:** Bei EPUBs aus den Teilen des Buchs (erste Überschrift h1 bis
+  h3 je Teil; lange Teile ohne Überschrift heißen "Abschnitt n"). Bei
+  reinem Text aus Absätzen, die wie Überschriften aussehen (`isHeading`:
+  kurz, einzeilig, beginnt mit Kapitel/Teil/Zahl/römischer Zahl oder steht
+  ganz in Großbuchstaben). Das aktuelle Kapitel steht beim Anhalten über dem
+  Text und ist in der Liste markiert. Texte aus älteren Versionen bekommen
+  ihr Verzeichnis beim nächsten Öffnen.
+
+Gespeichert je Text in `speedreader.library.v1`: `chapters: [{t, i}]`,
+`marks: [{i, t, d}]` (i = Wortposition).

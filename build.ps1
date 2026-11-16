@@ -20,8 +20,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$VersionName = '1.1',
-    [int]$VersionCode = 2,
+    [string]$VersionName = '1.2',
+    [int]$VersionCode = 3,
     [switch]$Release,
     [switch]$Install
 )

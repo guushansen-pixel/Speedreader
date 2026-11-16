@@ -62,3 +62,18 @@ Speedreader (Idee 20): `gymSchulte`, `gymSpanne`, `gymSprung`, Regeln
 mit Hash `gymrun`. Selbsttest 30/30; alle drei Übungen im Browser
 durchgespielt. v1.0 ist seit 15.11. auf dem Pixel installiert, aber noch
 ungetestet; v1.1 liegt als `dist/speedreader-1.1.apk` bereit.
+
+v1.2 (code 3, 2026-11-16): Abend-Farbfilter (`filterStrength`, `tintColor`,
+`applyFilter`, Ebene `#tint`) und Fokus-Lesen (`focusUpdate`, `noiseData`,
+Knopf ♪ im Leser) auf Daniels Wunsch; er will abends vor dem Schlafen lesen.
+Der Filter ist uhrzeitgesteuert, weil der WebView keinen Lichtsensor hat.
+Neue Farben müssen nicht eigens behandelt werden: Die Ebene wirkt auf alles.
+Selbsttest 36/36, Filter und Klang im Browser geprüft. APK
+`dist/speedreader-1.2.apk`.
+Nachtrag v1.2 (gleicher Tag, Daniels Wunsch mitten im Bau): Seitenzahlen
+(`PAGE`, `pageOf`, `pageStart`), Lesezeichen (`toggleMark`, Knopf 🔖) und
+Kapitelverzeichnis (`detectChapters`, `chaptersFromParts`, `isHeading`,
+Blatt hinter ☰). `parseEpub` liefert dafür zusätzlich `parts` mit
+Überschrift. Die Info-Zeile steht jetzt unter der Kopfzeile, damit drei
+Knöpfe Platz haben. Selbsttest 45/45; mit einem erzeugten Vier-Kapitel-Text
+im Browser geprüft, mit keinem echten Buch.

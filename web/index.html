@@ -63,6 +63,14 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
 #rd-ctl { display: flex; gap: 6px; padding: 6px 10px 0; }
 #rd-ctl button { flex: 1; padding: 12px 4px; font-size: 15px; }
 #rd-play { flex: 2 !important; }
+/* Abend-Farbfilter: liegt ueber allem und multipliziert jede Farbe mit einem warmen, dunkleren Ton */
+#tint { position: fixed; inset: 0; z-index: 50; pointer-events: none; mix-blend-mode: multiply; background: #fff; }
+.tb { background: none; border: 1px solid var(--line); border-radius: 9px; padding: 5px 9px; font-size: 15px; line-height: 1.2; }
+.tb.on { border-color: var(--acc); color: var(--acc); background: #1E3B38; }
+#rd-info { text-align: center; padding: 0 12px; }
+.sheet { max-height: 62vh; overflow-y: auto; margin-top: 8px; }
+.sheet h4 { margin: 14px 0 2px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.sheet .item.cur .t { color: var(--acc); font-weight: 600; }
 /* Augen-Gym: Vollbild */
 #gym { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
   padding: calc(var(--sat) + 6px) 14px calc(var(--sab) + 14px); touch-action: manipulation; }
@@ -95,7 +103,8 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
   <main id="view"></main>
 </div>
 <div id="reader" hidden>
-  <div id="rd-top"><button id="rd-close" aria-label="Schließen">‹</button><span id="rd-title"></span><span id="rd-info"></span></div>
+  <div id="rd-top"><button id="rd-close" aria-label="Schließen">‹</button><span id="rd-title"></span><button id="rd-snd" class="tb" aria-label="Klang">♪</button><button id="rd-mark" class="tb" aria-label="Lesezeichen">🔖</button><button id="rd-menu" class="tb" aria-label="Inhalt">☰</button></div>
+  <div id="rd-info"></div>
   <input type="range" id="rd-seek" min="0" max="1" value="0" aria-label="Position">
   <div id="rd-stage"><div id="rd-word"><span id="w-l"></span><span id="w-p"></span><span id="w-r"></span></div></div>
   <div id="rd-ctx"></div>
@@ -109,6 +118,7 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
   <div id="g-body"></div>
 </div>
 <div id="modal" hidden><div id="modal-in"></div></div>
+<div id="tint"></div>
 
 <script>
 'use strict';
@@ -123,7 +133,9 @@ const NATIVE = window.SrAndroid;
 
 // ---------------------------------------------------------------- Daten
 const K = { set: 'speedreader.settings.v1', lib: 'speedreader.library.v1', stats: 'speedreader.stats.v1', text: 'speedreader.text.' };
-const DEFAULT_SETTINGS = { schema: 1, wpm: 300, chunk: 1, font: 34, pauses: true, ramp: false, rampPerMin: 10, rampMax: 500 };
+const DEFAULT_SETTINGS = { schema: 1, wpm: 300, chunk: 1, font: 34, pauses: true, ramp: false, rampPerMin: 10, rampMax: 500,
+  klang: 'aus', klangVol: 0.4,                                   // Fokus-Lesen: leiser Klangteppich im Leser
+  filter: 'aus', filterMax: 0.8, filterStart: 19, filterFull: 22 };  // Abend-Farbfilter: aus | auto (nach Uhrzeit) | an
 let saveOk = true;
 function load(k, fb) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch (e) { return fb; } }
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { saveOk = false; return false; } }
@@ -210,6 +222,46 @@ function sentenceStart(words, i) {
 function estMinutes(n, wpm) { return n * 1.25 / wpm; }     // 1,25 = mittlerer Zuschlag durch Pausen
 function fmtMin(m) { return m < 1 ? '<1 min' : m < 90 ? Math.round(m) + ' min' : (Math.round(m / 6) / 10).toString().replace('.', ',') + ' h'; }
 
+// ---------------------------------------------------------------- Seiten, Kapitel, Lesezeichen
+// Eine "Seite" sind PAGE Woerter: Der Text hat keine echten Seiten, so bleibt die Zahl
+// aber von Schriftgroesse und Geraet unabhaengig.
+const PAGE = 250;
+function pageCount(n) { return Math.max(1, Math.ceil(n / PAGE)); }
+function pageOf(i, n) { return clamp(Math.floor(clamp(i, 0, Math.max(0, n - 1)) / PAGE) + 1, 1, pageCount(n)); }
+function pageStart(p, n) { return clamp((p - 1) * PAGE, 0, Math.max(0, n - 1)); }
+// Sieht ein Absatz wie eine Kapitelueberschrift aus? Kurz, einzeilig und entweder mit
+// einem typischen Anfang (Kapitel 3, Teil II, 4., Prolog) oder ganz in Grossbuchstaben.
+function isHeading(p) {
+  if (p.indexOf('\n') >= 0 || p.length < 2 || p.length > 70 || p.split(/\s+/).length > 10) return false;
+  if (/^(kapitel|chapter|teil|part|abschnitt|buch|prolog|epilog|vorwort|nachwort|einleitung|einführung|anhang)\b/i.test(p)) return true;
+  if (/^(\d{1,3}|[IVXLC]{1,7})[.:)]?(\s+\S.*)?$/.test(p) && !/[.,;!?]$/.test(p.replace(/^(\d{1,3}|[IVXLC]{1,7})[.:)]?/, ''))) return true;
+  return p.length >= 4 && /[A-ZÄÖÜ]/.test(p) && p === p.toUpperCase() && !/[.,;!?]$/.test(p);
+}
+// Kapitel aus reinem Text: Ueberschriften-Absaetze mit ihrer Wortposition.
+function detectChapters(text) {
+  const out = []; let count = 0;
+  String(text).replace(/\r/g, '').split(/\n\s*\n+/).forEach(p => {
+    const w = tokenize(p).words.length; if (!w) return;
+    const line = p.trim(); if (isHeading(line)) out.push({ t: line.slice(0, 80), i: count });
+    count += w;
+  });
+  return out.slice(0, 400);
+}
+// Kapitel aus den Teilen eines EPUB: Teile mit Ueberschrift, dazu lange Teile ohne Ueberschrift.
+function chaptersFromParts(parts) {
+  const out = []; let count = 0, k = 0;
+  parts.forEach(pt => { const w = tokenize(pt.text).words.length; if (!w) return; k++; if (pt.title || w >= 150) out.push({ t: (pt.title || 'Abschnitt ' + k).slice(0, 80), i: count }); count += w; });
+  return out.slice(0, 400);
+}
+// Index des Kapitels, in dem Wort i liegt (-1 = vor dem ersten).
+function currentChapter(ch, i) { let c = -1; for (let k = 0; k < ch.length; k++) { if (ch[k].i <= i) c = k; else break; } return c; }
+function markNear(list, i) { return list.findIndex(b => Math.abs(b.i - i) < 25); }
+// Lesezeichen setzen oder, wenn hier schon eins liegt, wieder entfernen. Liefert true, wenn gesetzt.
+function toggleMark(list, i, label, date) {
+  const at = markNear(list, i); if (at >= 0) { list.splice(at, 1); return false; }
+  list.push({ i, t: label, d: date }); list.sort((a, b) => a.i - b.i); return true;
+}
+
 // ---------------------------------------------------------------- ZIP / EPUB
 function u16(b, o) { return b[o] | b[o + 1] << 8; }
 function u32(b, o) { return (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0; }
@@ -241,6 +293,13 @@ function resolvePath(base, href) {
   return out.join('/');
 }
 // (X)HTML eines Kapitels -> Absaetze als Text.
+// Erste Ueberschrift eines Kapitels (h1 bis h3), sonst leer.
+function htmlHeading(html) {
+  let doc = new DOMParser().parseFromString(html, 'application/xhtml+xml');
+  if (!doc.body || doc.getElementsByTagName('parsererror').length) doc = new DOMParser().parseFromString(html, 'text/html');
+  const h = doc.body && doc.body.querySelector('h1,h2,h3');
+  return h ? h.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+}
 function htmlToText(html) {
   let doc = new DOMParser().parseFromString(html, 'application/xhtml+xml');
   if (!doc.body || doc.getElementsByTagName('parsererror').length) doc = new DOMParser().parseFromString(html, 'text/html');
@@ -266,10 +325,10 @@ async function parseEpub(bytes) {
   for (const ref of Array.from(opf.getElementsByTagName('itemref'))) {
     const href = items[ref.getAttribute('idref')]; if (!href) continue;
     const path = resolvePath(base, href); if (!z[path]) continue;
-    const t = htmlToText(await rd(path)); if (t) parts.push(t);
+    const html = await rd(path), t = htmlToText(html); if (t) parts.push({ title: htmlHeading(html), text: t });
   }
   if (!parts.length) throw new Error('Kein lesbarer Text im EPUB gefunden');
-  return { title: tEl ? tEl.textContent.trim() : '', text: parts.join('\n\n') };
+  return { title: tEl ? tEl.textContent.trim() : '', text: parts.map(p => p.text).join('\n\n'), parts };
 }
 function decodeText(bytes) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (e) { return new TextDecoder('windows-1252').decode(bytes); }
@@ -278,16 +337,17 @@ function b64ToBytes(s) { const bin = atob(s), b = new Uint8Array(bin.length); fo
 
 // ---------------------------------------------------------------- Bibliothek
 function saveLib() { store(K.lib, db.lib); }
-async function addText(title, text) {
+async function addText(title, text, chapters) {
   const tok = tokenize(text); if (tok.words.length < 2) return 'Kein Text gefunden.';
   const id = 't' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
   if (!await Texts.put(id, text)) return 'Der Text ist zu groß für den Speicher.';
-  db.lib.unshift({ id, title: (title || '').trim() || tok.words.slice(0, 6).join(' '), count: tok.words.length, pos: 0, added: today(), last: null });
+  db.lib.unshift({ id, title: (title || '').trim() || tok.words.slice(0, 6).join(' '), count: tok.words.length, pos: 0, added: today(), last: null,
+    chapters: chapters && chapters.length > 1 ? chapters : detectChapters(text), marks: [] });
   saveLib(); return null;
 }
 async function addFile(name, bytes) {
   try {
-    if (/\.epub$/i.test(name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) { const e = await parseEpub(bytes); return await addText(e.title || name.replace(/\.[^.]+$/, ''), e.text); }
+    if (/\.epub$/i.test(name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) { const e = await parseEpub(bytes); return await addText(e.title || name.replace(/\.[^.]+$/, ''), e.text, chaptersFromParts(e.parts)); }
     return await addText(name.replace(/\.[^.]+$/, ''), decodeText(bytes));
   } catch (e) { return e && e.message || 'Datei konnte nicht gelesen werden.'; }
 }
@@ -314,7 +374,8 @@ function showWord() {
 }
 function updateInfo() {
   const N = P.words.length, left = N - P.i;
-  $('rd-info').textContent = Math.round(P.i / N * 100) + ' % · noch ' + fmtMin(estMinutes(left, P.wpm));
+  $('rd-info').textContent = 'Seite ' + pageOf(P.i, N) + ' von ' + pageCount(N) + ' · ' + Math.round(P.i / N * 100) + ' % · noch ' + fmtMin(estMinutes(left, P.wpm));
+  if (P.item) $('rd-mark').className = 'tb' + (markNear(P.item.marks || [], Math.min(P.i, N - 1)) >= 0 ? ' on' : '');
   $('rd-seek').max = N - 1; $('rd-seek').value = Math.min(P.i, N - 1);
   $('rd-play').textContent = (P.on ? '⏸ ' : '▶ ') + Math.round(P.wpm) + ' WPM'; $('rd-chunk').textContent = chunkN() + (chunkN() > 1 ? ' Wörter' : ' Wort');
 }
@@ -323,7 +384,8 @@ function showContext() {
   if (P.on) { el.innerHTML = '<div class="hint small">Tippe auf das Wort, um anzuhalten.</div>'; return; }
   const a = Math.max(0, P.i - 70), b = Math.min(P.words.length, P.i + 110); let h = '';
   for (let k = a; k < b; k++) h += (P.para.has(k) && k > a ? '<br><br>' : '') + '<span data-i="' + k + '"' + (k === P.i ? ' class="cur"' : '') + '>' + esc(P.words[k]) + '</span> ';
-  el.innerHTML = h; const cur = el.querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
+  const ch = P.item && P.item.chapters || [], ci = currentChapter(ch, P.i);
+  el.innerHTML = (ci >= 0 ? '<div class="small" style="margin-bottom:10px;color:var(--acc)">' + esc(ch[ci].t) + '</div>' : '') + h; const cur = el.querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
 }
 function step() {
   if (!P.on) return;
@@ -363,12 +425,14 @@ async function openReader(id) {
   const item = db.lib.find(x => x.id === id); if (!item) return;
   const text = await Texts.get(id); if (text == null) { toast('Der Text ist nicht mehr gespeichert.'); return; }
   const tok = tokenize(text);
+  // Texte aus aelteren Versionen haben noch kein Kapitelverzeichnis und keine Lesezeichen.
+  if (!item.chapters) item.chapters = detectChapters(text); if (!item.marks) item.marks = []; saveLib();
   Object.assign(P, { on: false, item, words: tok.words, para: tok.para, i: item.pos >= tok.words.length ? 0 : item.pos, wpm: db.settings.wpm, startWpm: db.settings.wpm, playMs: 0, sessMs: 0, sessWords: 0, flushedMs: 0, flushedWords: 0 });
   P.sessFrom = P.i;
-  $('rd-title').textContent = item.title; $('reader').hidden = false; location.hash = 'read';
+  $('rd-title').textContent = item.title; $('reader').hidden = false; location.hash = 'read'; focusUpdate(true);
   showWord(); updateInfo(); showContext();
 }
-function closeReader() { pause(); flush(); $('reader').hidden = true; P.item = null; }
+function closeReader() { pause(); flush(); closeModal(); $('reader').hidden = true; P.item = null; focusUpdate(false); }
 function setWpm(v) { P.wpm = P.startWpm = clamp(Math.round(v / 5) * 5, 100, 1200); P.playMs = 0; if (P.on) P.t0 = performance.now(); db.settings.wpm = P.wpm; store(K.set, db.settings); updateInfo(); }
 $('rd-stage').onclick = () => { if (P.on) pause(); else play(); };
 $('rd-play').onclick = () => { if (P.on) pause(); else play(); };
@@ -378,6 +442,33 @@ $('rd-chunk').onclick = () => { const was = P.on; if (was) pause(); db.settings.
 $('rd-seek').oninput = e => { if (P.on) pause(); seekTo(+e.target.value); };
 $('rd-ctx').onclick = e => { const s = e.target.closest('span[data-i]'); if (s && !P.on) seekTo(+s.dataset.i); };
 $('rd-close').onclick = () => history.back();
+// Lesezeichen an der aktuellen Stelle setzen oder entfernen.
+$('rd-mark').onclick = () => {
+  if (!P.item) return; const was = P.on; if (was) pause();
+  const i = Math.min(P.i, P.words.length - 1); P.item.marks = P.item.marks || [];
+  const set = toggleMark(P.item.marks, i, P.words.slice(i, i + 7).join(' '), today()); saveLib(); updateInfo();
+  $('rd-info').textContent = set ? 'Lesezeichen gesetzt (Seite ' + pageOf(i, P.words.length) + ')' : 'Lesezeichen entfernt';
+  if (was) play();
+};
+// Inhalt: zu einer Seite springen, Lesezeichen, Kapitel.
+$('rd-menu').onclick = () => {
+  if (!P.item) return; if (P.on) pause();
+  const it = P.item, N = P.words.length, ch = it.chapters || [], bm = it.marks || [], cur = currentChapter(ch, Math.min(P.i, N - 1));
+  const row = (i, title, sub, extra, cls) => '<div class="item' + (cls || '') + '"><div class="grow" data-j="' + i + '"><div class="t">' + esc(title) + '</div><div class="muted small">' + sub + '</div></div>' + (extra || '') + '</div>';
+  openModal('<h3>' + esc(it.title) + '</h3><div class="muted small">Seite ' + pageOf(P.i, N) + ' von ' + pageCount(N) + ' · eine Seite sind ' + PAGE + ' Wörter</div>' +
+    '<div class="row" style="margin-top:10px"><input type="number" id="k-page" class="short" inputmode="numeric" min="1" max="' + pageCount(N) + '" placeholder="Seite"><button id="k-go" class="grow">Zu dieser Seite</button></div>' +
+    '<div class="sheet"><h4>Lesezeichen</h4>' + (bm.length ? bm.map((b, k) => row(b.i, b.t + ' …', 'Seite ' + pageOf(b.i, N) + ' · ' + b.d.slice(8, 10) + '.' + b.d.slice(5, 7) + '.', '<button class="ghost small" data-x="' + k + '">✕</button>')).join('')
+      : '<div class="muted small">Noch keins. Mit 🔖 im Leser setzt du eins an der aktuellen Stelle.</div>') +
+    '<h4>Kapitel</h4>' + (ch.length ? ch.map((c, k) => row(c.i, c.t, 'Seite ' + pageOf(c.i, N), '', k === cur ? ' cur' : '')).join('')
+      : '<div class="muted small">In diesem Text wurden keine Kapitel erkannt.</div>') + '</div>' +
+    '<div class="btns"><button class="ghost" id="k-x">Schließen</button></div>', () => {
+    $('k-x').onclick = closeModal;
+    $('k-go').onclick = () => { const p = Math.round(+$('k-page').value); if (p >= 1) { closeModal(); seekTo(pageStart(Math.min(p, pageCount(N)), N)); } };
+    $('modal-in').querySelectorAll('[data-j]').forEach(el => el.onclick = () => { closeModal(); seekTo(+el.dataset.j); });
+    $('modal-in').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { it.marks.splice(+b.dataset.x, 1); saveLib(); closeModal(); updateInfo(); $('rd-menu').onclick(); });
+    const c = $('modal-in').querySelector('.item.cur'); if (c) c.scrollIntoView({ block: 'center' });
+  });
+};
 document.addEventListener('visibilitychange', () => { if (document.hidden && P.on) pause(); else if (!document.hidden) checkShared(); });
 
 // ---------------------------------------------------------------- Hilfen
@@ -406,6 +497,61 @@ function quizPrompt(words, wpm) {
   return 'Ich habe den folgenden Text gerade per Speedreading gelesen (etwa ' + Math.round(wpm) + ' Wörter pro Minute). ' +
     'Stelle mir bitte nacheinander fünf Verständnisfragen dazu, warte jeweils auf meine Antwort und sag mir am Ende ehrlich, wie viel ich verstanden habe.\n\nTEXT:\n' + words.join(' ');
 }
+
+// ---------------------------------------------------------------- Abend-Farbfilter
+// Staerke 0..1 je nach Einstellung und Uhrzeit (h als Dezimalstunde). Bei "auto" steigt sie
+// von filterStart bis filterFull an und bleibt bis 6 Uhr morgens voll.
+function filterStrength(s, h) {
+  if (s.filter === 'an') return s.filterMax;
+  if (s.filter !== 'auto') return 0;
+  const a = s.filterStart, b = Math.max(a + 0.01, s.filterFull);
+  if (h < 6 || h >= b) return s.filterMax;
+  return h < a ? 0 : s.filterMax * (h - a) / (b - a);
+}
+// Filterfarbe: Blau fast ganz raus, Gruen zur Haelfte, dazu insgesamt dunkler. Weiss wird zu Bernstein.
+function tintColor(k) {
+  const d = 1 - 0.3 * k, c = v => Math.round(255 * v * d);
+  return 'rgb(' + c(1) + ',' + c(1 - 0.5 * k) + ',' + c(1 - 0.9 * k) + ')';
+}
+function applyFilter() { const d = new Date(); $('tint').style.background = tintColor(filterStrength(db.settings, d.getHours() + d.getMinutes() / 60)); }
+setInterval(applyFilter, 60000);
+
+// ---------------------------------------------------------------- Fokus-Lesen
+// Leiser, gleichmaessiger Klangteppich im Leser, live erzeugt (wie im Klangraum, hier nur Rauschen).
+function noiseData(type, n, rnd) {
+  const F = Math.min(4096, n >> 2), x = new Float32Array(n + F); let b0 = 0, b1 = 0, b2 = 0, last = 0;
+  for (let i = 0; i < x.length; i++) {
+    const w = rnd() * 2 - 1;
+    if (type === 'rosa') { b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913; x[i] = b0 + b1 + b2 + w * 0.1848; }
+    else { last = (last + 0.02 * w) / 1.02; x[i] = last; }
+  }
+  const y = new Float32Array(n); for (let i = 0; i < n; i++) y[i] = x[i];
+  for (let i = 0; i < F; i++) { const a = i / F; y[i] = x[i] * Math.sqrt(a) + x[n + i] * Math.sqrt(1 - a); }     // Naht der Schleife ueberblenden
+  let s = 0, m = 0; for (let i = 0; i < n; i++) m += y[i]; m /= n; for (let i = 0; i < n; i++) { y[i] -= m; s += y[i] * y[i]; }
+  const k = 0.2 / Math.sqrt(s / n || 1); for (let i = 0; i < n; i++) y[i] = clamp(y[i] * k, -1, 1);
+  return y;
+}
+const FS = { ac: null, g: null, src: null, type: null };
+const KLANG = [['aus', 'aus'], ['braun', 'tiefes Rauschen'], ['rosa', 'helles Rauschen']];
+function focusGain(v) { return clamp(v, 0, 1) * clamp(v, 0, 1) * 1.2; }
+function focusUpdate(reading) {
+  const s = db.settings, want = reading && s.klang !== 'aus' ? s.klang : null;
+  $('rd-snd').className = s.klang !== 'aus' ? 'on' : '';
+  if (!want) { if (FS.src) { const g = FS.g, src = FS.src; g.gain.setTargetAtTime(0, FS.ac.currentTime, 0.15); setTimeout(() => { try { src.stop(); } catch (e) {} if (!FS.src) FS.ac.suspend(); }, 800); FS.src = null; FS.type = null; } return; }
+  try {
+    if (!FS.ac) FS.ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (FS.ac.state !== 'running') FS.ac.resume();
+    if (FS.type !== want) {
+      if (FS.src) { try { FS.src.stop(); } catch (e) {} }
+      const ac = FS.ac, n = Math.floor(ac.sampleRate * 6), buf = ac.createBuffer(2, n, ac.sampleRate), f = ac.createBiquadFilter();
+      buf.copyToChannel(noiseData(want, n, Math.random), 0); buf.copyToChannel(noiseData(want, n, Math.random), 1);
+      FS.src = ac.createBufferSource(); FS.src.buffer = buf; FS.src.loop = true; FS.g = ac.createGain(); FS.g.gain.value = 0;
+      f.type = 'lowpass'; f.frequency.value = want === 'braun' ? 900 : 3500; FS.src.connect(f); f.connect(FS.g); FS.g.connect(ac.destination); FS.src.start(); FS.type = want;
+    }
+    FS.g.gain.setTargetAtTime(focusGain(s.klangVol), FS.ac.currentTime, 0.4);
+  } catch (e) {}
+}
+$('rd-snd').onclick = () => { const i = KLANG.findIndex(k => k[0] === db.settings.klang); db.settings.klang = KLANG[(i + 1) % KLANG.length][0]; store(K.set, db.settings); focusUpdate(true); $('rd-info').textContent = 'Klang: ' + KLANG[(i + 1) % KLANG.length][1]; };
 
 // ---------------------------------------------------------------- Augen-Gym
 // Drei kurze Uebungen fuer Blickfeld und Blicksprünge. Reine Regeln zuerst, dann der Ablauf.
@@ -603,10 +749,27 @@ VIEWS.settings = () => {
     '<div class="row" style="margin-top:8px"><div class="grow"><label class="f" style="margin-top:0">+ WPM pro Minute</label><input type="number" class="short" id="s-rpm" inputmode="numeric"></div>' +
     '<div class="grow"><label class="f" style="margin-top:0">höchstens</label><input type="number" class="short" id="s-rmax" inputmode="numeric"></div></div>' +
     '<div class="muted small" style="margin-top:6px">Jede Lesesitzung startet beim eingestellten Tempo und wird pro Minute etwas schneller. Der Startwert bleibt, wie er ist.</div></div>' +
-    '<div class="muted small">Speedreader v1.1</div>';
+    '<div class="card"><h2>Abend-Farbfilter</h2><div class="chips">' + [['aus', 'aus'], ['auto', 'automatisch nach Uhrzeit'], ['an', 'immer an']].map(o => '<button class="chip' + (s.filter === o[0] ? ' on' : '') + '" data-fm="' + o[0] + '" style="padding:9px 12px">' + o[1] + '</button>').join('') + '</div>' +
+    '<label class="f">Stärke: <b id="s-fsv"></b> %</label><input type="range" id="s-fs" min="0.2" max="1" step="0.05">' +
+    '<label class="f">Beginnt um <b id="s-f1v"></b> Uhr</label><input type="range" id="s-f1" min="15" max="23" step="0.5">' +
+    '<label class="f">Volle Stärke ab <b id="s-f2v"></b> Uhr</label><input type="range" id="s-f2" min="16" max="24" step="0.5">' +
+    '<div class="muted small" style="margin-top:6px">Der Filter nimmt Blau und Helligkeit aus dem ganzen Bild; bei „automatisch“ wird er abends von selbst stärker und bleibt bis 6 Uhr an. Ob Blaufilter das Einschlafen verbessern, ist in Studien umstritten. Sicherer wirken: Display dunkel stellen, nur kurz lesen, nichts Aufregendes.</div></div>' +
+    '<div class="card"><h2>Fokus-Lesen</h2><div class="small muted">Leiser Klangteppich, solange der Leser offen ist. Umschalten geht auch im Leser über ♪.</div><div class="chips">' + KLANG.map(o => '<button class="chip' + (s.klang === o[0] ? ' on' : '') + '" data-kl="' + o[0] + '" style="padding:9px 12px">' + o[1] + '</button>').join('') + '</div>' +
+    '<label class="f">Lautstärke</label><input type="range" id="s-kv" min="0.05" max="1" step="0.05"></div>' +
+    '<div class="muted small">Speedreader v1.2</div>';
   $('s-wpm').value = s.wpm; $('s-font').value = s.font; $('s-pause').checked = s.pauses; $('s-ramp').checked = s.ramp; $('s-rpm').value = s.rampPerMin; $('s-rmax').value = s.rampMax;
   const lab = () => { $('s-wv').textContent = s.wpm; $('s-fv').textContent = s.font; }; lab();
   const sv = () => { store(K.set, s); lab(); };
+  const hh = v => { const m = Math.round(v % 1 * 60); return Math.floor(v) + ':' + String(m).padStart(2, '0'); };
+  const flab = () => { $('s-fsv').textContent = Math.round(s.filterMax * 100); $('s-f1v').textContent = hh(s.filterStart); $('s-f2v').textContent = hh(s.filterFull); };
+  $('s-fs').value = s.filterMax; $('s-f1').value = s.filterStart; $('s-f2').value = s.filterFull; $('s-kv').value = s.klangVol; flab();
+  const fsave = () => { store(K.set, s); flab(); applyFilter(); };
+  $('s-fs').oninput = e => { s.filterMax = +e.target.value; fsave(); };
+  $('s-f1').oninput = e => { s.filterStart = +e.target.value; if (s.filterFull <= s.filterStart) { s.filterFull = Math.min(24, s.filterStart + 0.5); $('s-f2').value = s.filterFull; } fsave(); };
+  $('s-f2').oninput = e => { s.filterFull = Math.max(+e.target.value, s.filterStart + 0.5); e.target.value = s.filterFull; fsave(); };
+  $('s-kv').oninput = e => { s.klangVol = +e.target.value; store(K.set, s); };
+  view.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => { s.filter = b.dataset.fm; store(K.set, s); applyFilter(); render('settings'); });
+  view.querySelectorAll('[data-kl]').forEach(b => b.onclick = () => { s.klang = b.dataset.kl; store(K.set, s); render('settings'); });
   $('s-wpm').oninput = e => { s.wpm = +e.target.value; sv(); }; $('s-font').oninput = e => { s.font = +e.target.value; sv(); };
   $('s-pause').onchange = e => { s.pauses = e.target.checked; sv(); }; $('s-ramp').onchange = e => { s.ramp = e.target.checked; sv(); };
   $('s-rpm').onchange = e => { s.rampPerMin = clamp(+e.target.value || 10, 1, 100); sv(); }; $('s-rmax').onchange = e => { s.rampMax = clamp(+e.target.value || 500, 150, 1200); sv(); };
@@ -719,6 +882,28 @@ async function srTests() {
   t('sprungNext: dazwischen bleibt das Tempo', sprungNext(700, 8, 10, 2) === 700 && sprungNext(700, 10, 10, 2) === 700);
   t('schulteRecord hält die Bestzeit', schulteRecord(null, 9000).best === 9000 && schulteRecord({ best: 8000, n: 2 }, 9000).best === 8000 && schulteRecord({ best: 8000, n: 2 }, 7000).best === 7000 && schulteRecord({ best: 8000, n: 2 }, 7000).n === 3);
   t('fmtSec', fmtSec(12340) === '12,3 s');
+  // Seiten, Kapitel, Lesezeichen
+  t('Seiten: 250 Wörter je Seite', pageCount(0) === 1 && pageCount(250) === 1 && pageCount(251) === 2 && pageOf(0, 1000) === 1 && pageOf(249, 1000) === 1 && pageOf(250, 1000) === 2 && pageOf(999, 1000) === 4 && pageOf(5000, 1000) === 4);
+  t('Seitenanfang', pageStart(1, 1000) === 0 && pageStart(3, 1000) === 500 && pageStart(9, 1000) === 999);
+  t('Überschriften erkennen', ['Kapitel 3', 'KAPITEL DREI', 'Teil II: Die Reise', '4. Der Wald', 'IV', '12', 'Prolog', 'DIE ANKUNFT'].every(isHeading), ['Kapitel 3', 'KAPITEL DREI', 'Teil II: Die Reise', '4. Der Wald', 'IV', '12', 'Prolog', 'DIE ANKUNFT'].filter(x => !isHeading(x)).join('|'));
+  t('Fließtext ist keine Überschrift', ['Es war einmal ein Bär.', 'Er ging in den Wald und fand dort einen großen Topf voller Honig, den er sofort aß.', 'Ja.', '3. Mai war ein schöner Tag.', 'Zeile eins\nZeile zwei'].every(x => !isHeading(x)), ['Es war einmal ein Bär.', 'Ja.', '3. Mai war ein schöner Tag.'].filter(isHeading).join('|'));
+  const book = 'Kapitel 1\n\nEins zwei drei vier.\n\nNoch ein Absatz hier.\n\nKapitel 2\n\nFünf sechs.';
+  const dc = detectChapters(book), tkb = tokenize(book).words;
+  t('Kapitel im Text: Position zeigt auf die Überschrift', dc.length === 2 && dc[0].i === 0 && dc[1].t === 'Kapitel 2' && tkb[dc[1].i] === 'Kapitel' && tkb[dc[1].i + 1] === '2', JSON.stringify(dc));
+  const cp = chaptersFromParts([{ title: '', text: 'Titelseite' }, { title: 'Anfang', text: 'eins zwei drei' }, { title: 'Ende', text: 'vier fünf' }]);
+  t('Kapitel aus EPUB-Teilen: Wortpositionen laufen durch', JSON.stringify(cp) === '[{"t":"Anfang","i":1},{"t":"Ende","i":4}]', JSON.stringify(cp));
+  t('aktuelles Kapitel', currentChapter(cp, 0) === -1 && currentChapter(cp, 1) === 0 && currentChapter(cp, 3) === 0 && currentChapter(cp, 4) === 1 && currentChapter([], 5) === -1);
+  const ml = []; t('Lesezeichen setzen, sortieren, an derselben Stelle wieder entfernen', toggleMark(ml, 500, 'b', 'd') === true && toggleMark(ml, 100, 'a', 'd') === true && ml.map(x => x.i).join() === '100,500' && toggleMark(ml, 510, 'x', 'd') === false && ml.length === 1 && markNear(ml, 110) === 0 && markNear(ml, 400) === -1);
+  t('EPUB liefert Kapitelüberschriften', ep && ep.parts.length === 2 && ep.parts[0].title === 'Kapitel 1' && JSON.stringify(chaptersFromParts(ep.parts)) === '[{"t":"Kapitel 1","i":0},{"t":"Kapitel 2","i":7}]', ep && JSON.stringify(chaptersFromParts(ep.parts)));
+  // Abend-Farbfilter und Fokus-Klang
+  const fs = (mode, h) => filterStrength({ filter: mode, filterMax: 0.8, filterStart: 19, filterFull: 22 }, h);
+  t('Farbfilter aus und immer an', fs('aus', 23) === 0 && fs('an', 12) === 0.8);
+  t('Farbfilter automatisch: tagsüber aus, abends ansteigend, nachts voll', fs('auto', 12) === 0 && fs('auto', 18.99) === 0 && Math.abs(fs('auto', 20.5) - 0.4) < 1e-9 && fs('auto', 22) === 0.8 && fs('auto', 23.5) === 0.8 && fs('auto', 3) === 0.8 && fs('auto', 6) === 0);
+  t('Farbfilter: Beginn und volle Stärke zur selben Zeit teilt nicht durch null', filterStrength({ filter: 'auto', filterMax: 1, filterStart: 20, filterFull: 20 }, 20.5) === 1);
+  t('Filterfarbe: ohne Filter weiß, mit Filter warm und dunkler', tintColor(0) === 'rgb(255,255,255)' && tintColor(1) === 'rgb(179,89,18)' && tintColor(0.8) === 'rgb(194,116,54)', tintColor(1) + ' ' + tintColor(0.8));
+  const nz = noiseData('braun', 24000, rnd), nzp = noiseData('rosa', 24000, rnd); let e2 = 0, pk = 0; for (let i = 0; i < nz.length; i++) { e2 += nz[i] * nz[i]; pk = Math.max(pk, Math.abs(nz[i]), Math.abs(nzp[i])); }
+  t('Fokus-Rauschen: Pegel und Grenzen', Math.abs(Math.sqrt(e2 / nz.length) - 0.2) < 0.02 && pk <= 1, Math.sqrt(e2 / nz.length).toFixed(3) + ' / ' + pk.toFixed(2));
+  t('Fokus-Lautstärke quadratisch', focusGain(0) === 0 && Math.abs(focusGain(0.5) - 0.3) < 1e-9 && focusGain(2) === 1.2);
   t('Quiz-Auftrag enthält Text und Tempo', quizPrompt(['Hallo', 'Welt'], 312.4).includes('etwa 312 Wörter') && quizPrompt(['Hallo', 'Welt'], 300).endsWith('TEXT:\nHallo Welt'));
   console.log('Selbsttest: ' + ok + ' OK, ' + fail + ' Fehler');
   return { ok, fail };
@@ -726,6 +911,7 @@ async function srTests() {
 window.srTests = srTests;
 
 (async () => {
+  applyFilter();
   await Texts.open();
   if (!db.lib.length && !load('speedreader.seeded.v1', false)) { await addText('Kurze Einführung', SAMPLE); store('speedreader.seeded.v1', true); }
   if (/[?&]debug=1/.test(location.search)) window.SR_TEST = await srTests();

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2 (code 3) – 2026-11-16
+
+- Abend-Farbfilter für die ganze App: aus, immer an oder automatisch nach
+  Uhrzeit, Stärke einstellbar.
+- Fokus-Lesen: leiser Klangteppich im Leser (tiefes oder helles Rauschen).
+- Seitenzahlen (250 Wörter je Seite) mit Sprung zu einer Seite, Lesezeichen,
+  Kapitelverzeichnis für EPUBs und Texte mit Überschriften.
+
 ## 1.1 (code 2) – 2026-11-15
 
 - Augen-Gym: Schulte-Tabelle (3×3 bis 7×7), Blickspanne und Blicksprung,
