@@ -20,8 +20,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$VersionName = '1.2',
-    [int]$VersionCode = 3,
+    [string]$VersionName = '1.3',
+    [int]$VersionCode = 4,
     [switch]$Release,
     [switch]$Install
 )
@@ -52,7 +52,7 @@ $appDir      = Join-Path $ApkBuilder "apps\$AppName"
 & "$ApkBuilder\new-app.ps1" -Name $AppName -PackageId $PackageId `
     -WebRoot (Join-Path $ProjectRoot 'web') `
     -Icon (Join-Path $ProjectRoot 'icon.xml') `
-    -IconBackground "#12171E" -Portrait -KeepScreenOn `
+    -IconBackground "#12171E" -Portrait -KeepScreenOn -Online `
     -VersionName $VersionName -VersionCode $VersionCode -Force
 
 $mainDir = Join-Path $appDir 'app\src\main'
@@ -70,6 +70,22 @@ $manifest = Replace-Once $manifest '</intent-filter>' @'
                 <data android:mimeType="text/plain" />
             </intent-filter>
 '@.TrimEnd() 'intent-filter'
+# Vorlesen: Ab targetSdk 30 sieht eine App die Sprachausgabe nur, wenn sie
+# sie in <queries> nennt; ohne den Block findet TextToSpeech keine Stimme.
+$manifest = Replace-Once $manifest '    <application' @'
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+'@.TrimEnd() 'application-Tag'
+# Der Link-Import braucht das Netz (new-app.ps1 -Online). Fehlt die
+# Berechtigung, scheitert er still, deshalb hier laut pruefen.
+if ($manifest.IndexOf('android.permission.INTERNET') -lt 0) {
+    throw "INTERNET-Berechtigung fehlt im Manifest - kennt new-app.ps1 den Schalter -Online noch?"
+}
 Write-TextNoBom -Path $manifestPath -Content $manifest
 
 # --- FileBridge.java -------------------------------------------------------
@@ -99,6 +115,13 @@ $java = Replace-Once $java '    /** Haelt lokale Seiten im WebView' @'
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (fileBridge != null) fileBridge.onResult(requestCode, resultCode, data);
+    }
+
+    // Stimme der Sprachausgabe wieder freigeben.
+    @Override
+    protected void onDestroy() {
+        if (fileBridge != null) fileBridge.shutdown();
+        super.onDestroy();
     }
 
     // launchMode singleTop: Laeuft die App schon, kommt "Teilen" hier an.

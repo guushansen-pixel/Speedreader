@@ -2,10 +2,10 @@
 
 Offline-Android-App: eigene Texte Wort für Wort lesen (RSVP, "Rapid Serial
 Visual Presentation") mit einstellbarem Tempo. Texte kommen aus der
-Zwischenablage, einer Textdatei, einem EPUB ohne Kopierschutz oder per
-"Teilen" aus einer anderen App.
+Zwischenablage, einer Textdatei, einem PDF, einem EPUB ohne Kopierschutz,
+von einer Webseite oder per "Teilen" aus einer anderen App.
 
-APK: [dist/speedreader-1.2.apk](dist/speedreader-1.2.apk)
+APK: [dist/speedreader-1.2.apk](dist/speedreader-1.2.apk) (v1.2; die APK für v1.3 ist noch nicht gebaut)
 
 ## Funktionen
 
@@ -51,14 +51,78 @@ fallen weg. EPUBs mit Kopierschutz (verschlüsselte Inhalte in
 `encryption.xml`) werden mit einer Meldung abgelehnt und nicht entschlüsselt.
 Kein ZIP64, höchstens 25 MB.
 
+## PDF
+
+Eigener kleiner PDF-Textleser (`parsePdf`), kein externes Paket:
+
+- Objekte werden direkt aus der Datei gesammelt (`N G obj`), auch aus
+  Objekt-Strömen (PDF 1.5); komprimierte Ströme über `DecompressionStream`.
+- Seiten in der Reihenfolge des Seitenbaums. In den Inhalts-Strömen werden
+  die Text-Befehle ausgewertet (`Tf Td TD T* Tm Tj TJ ' "`, dazu `cm q Q`
+  für die Lage auf der Seite).
+- Zeichen werden über die ToUnicode-Tabelle der Schrift übersetzt, sonst
+  über die Windows-Kodierung und eine kleine Liste von Zeichennamen.
+- Mit den Zeichenbreiten der Schrift wird erkannt, wo zwischen zwei
+  Textstücken eine Lücke ist (Leerzeichen ohne Leerzeichen-Glyphe).
+- Zeilen werden zu Absätzen gefügt (größerer Zeilenabstand oder andere
+  Schriftgröße = neuer Absatz), Trennstriche am Zeilenende entfernt,
+  reine Seitenzahlen verworfen.
+
+Grenzen: Gescannte PDFs sind Bilder und liefern keinen Text. Verschlüsselte
+PDFs werden abgelehnt. Mehrspaltiger Satz, Tabellen, Fußnoten und
+Kopfzeilen landen in der Reihenfolge im Text, in der sie in der Datei
+stehen. Andere Kompressionen als Flate (LZW, ASCII85) werden übersprungen.
+Geprüft mit PDFs aus Chromium und LibreOffice (Text- und Writer-Export,
+Blocksatz mit Silbentrennung), mit keinem gekauften Buch und keinem
+LaTeX-PDF.
+
+## Webseite
+
+`htmlArticle` nimmt Navigation, Kopf- und Fußbereich, Formulare und Skripte
+heraus und sucht den Bereich mit dem meisten Absatztext (`<article>` oder
+`<main>`, wenn sie den Großteil enthalten). Den Abruf macht in der App die
+Brücke (`fetchUrl`), weil der WebView unter `file://` fremde Seiten nicht
+lesen darf. Nur `https`, höchstens 25 MB, ein PDF hinter dem Link wird als
+PDF gelesen. Ein geteilter Text, der nur aus einem Link besteht (auch
+„Titel + Link"), wird als Link behandelt (`sharedUrl`).
+
+**Das ist der einzige Netzzugriff der App**, und er passiert nur, wenn man
+einen Link eingibt oder teilt. Seiten mit Anmeldung, Bezahlschranke oder
+nachgeladenem Text gehen nicht.
+
+## Vorlesen, Zeilen-Modus, Markieren, Check
+
+- **Vorlesen (🔊):** Satz für Satz über Androids Sprachausgabe (Brücke
+  `ttsSpeak`; `window.speechSynthesis` gibt es im WebView nicht). Der Satz
+  ist hell, das gesprochene Wort markiert, wenn die Stimme es meldet (ab
+  Android 8). Anhalten setzt auf den Satzanfang zurück. Die Knöpfe ± ändern
+  dann das Sprechtempo.
+- **Zeilen-Modus (≡):** Der Text bleibt stehen, die Markierung läuft mit
+  denselben Zeiten wie im Wort-Modus (`delayFactor`) hindurch. Tippen in den
+  Text hält an.
+- **Markieren:** angehalten „✎ Markieren", dann einen Satz antippen
+  (erneut antippen hebt auf). Unter ☰ stehen alle Stellen, ein Knopf kopiert
+  sie mit Seitenzahl.
+- **Verständnis-Check:** bis zu drei Runden mit je drei Sätzen; zwei stammen
+  aus den zuletzt gelesenen höchstens 700 Wörtern, einer aus dem noch
+  ungelesenen Teil (am Textende aus einem anderen Text der Bibliothek).
+  Geprüft wird Wiedererkennen, nicht Verstehen; die App sagt das. Bei
+  weniger als der Hälfte bietet sie an, das Tempo um 50 zu senken.
+- **Tempo-Bremse:** Zweimal „Satz zurück" innerhalb von 90 Sekunden beim
+  Lesen senkt das Tempo um 25 (abschaltbar).
+- **Restzeit:** bis Kapitelende und Textende, ab 20 Sekunden Lesezeit mit
+  dem echten Tempo der Sitzung statt der eingestellten Zahl.
+
 ## Datenmodell
 
 - IndexedDB `speedreader` / Store `texts`: Text je ID (Rückfall:
   localStorage `speedreader.text.<id>`)
 - `speedreader.library.v1`: `[{id, title, count, pos, added, last}]`
 - `speedreader.settings.v1`: `wpm`, `chunk`, `font`, `pauses`, `ramp`,
-  `rampPerMin`, `rampMax`, `schema`
-- `speedreader.stats.v1`: Datum → `{ms, words}`
+  `rampPerMin`, `rampMax`, `mode` (wort/zeile), `brake`, `ttsLang`,
+  `ttsRate`, `schema`
+- `speedreader.stats.v1`: Datum → `{ms, words, cq, cr}` (cq/cr = Fragen und
+  richtige Antworten im Verständnis-Check)
 
 ## Einordnung
 
@@ -112,4 +176,5 @@ Lesetempo im Alltag steigern, ist nicht gut belegt; die App sagt das auch.
   ihr Verzeichnis beim nächsten Öffnen.
 
 Gespeichert je Text in `speedreader.library.v1`: `chapters: [{t, i}]`,
-`marks: [{i, t, d}]` (i = Wortposition).
+`marks: [{i, t, d}]` (i = Wortposition), seit v1.3 `hl: [{a, b, t}]`
+(markierte Sätze, Wortbereich und Text).

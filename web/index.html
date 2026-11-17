@@ -43,7 +43,7 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
 #reader { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
   padding: calc(var(--sat) + 6px) 0 calc(var(--sab) + 10px); }
 #reader[hidden] { display: none; }
-#rd-top { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: 44px; }
+#rd-top { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 44px; }
 #rd-close { background: none; border: 0; font-size: 28px; padding: 0 10px 4px 0; }
 #rd-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 #rd-info { font-size: 13px; color: var(--muted); white-space: nowrap; }
@@ -59,6 +59,15 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
 #rd-word.chunk { justify-content: center; } #rd-word.chunk #w-l { flex: 0 0 auto; }
 #rd-ctx { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; font-size: 16px; line-height: 1.6; color: var(--muted); }
 #rd-ctx span.cur { background: var(--acc); color: #06201D; border-radius: 4px; padding: 0 2px; }
+#rd-ctx { overflow-wrap: anywhere; }
+#rd-ctx span.sent { color: var(--txt); }
+#rd-ctx span.hl { border-bottom: 2px solid var(--warn, #E0A93B); color: var(--txt); }
+#rd-ctx.mark span { cursor: pointer; }
+#rd-stage[hidden], #rd-tools[hidden] { display: none; }
+#rd-tools { display: flex; gap: 6px; padding: 6px 10px 0; }
+#rd-tools button { flex: 1; font-size: 14px; padding: 8px 6px; }
+.q button { display: block; width: 100%; text-align: left; margin-top: 8px; font-size: 14px; line-height: 1.4; }
+.q button.ok { border-color: var(--good); background: #1E3B2E; } .q button.no { border-color: var(--bad); background: #4A2622; }
 #rd-ctx .hint { text-align: center; margin-top: 30px; }
 #rd-ctl { display: flex; gap: 6px; padding: 6px 10px 0; }
 #rd-ctl button { flex: 1; padding: 12px 4px; font-size: 15px; }
@@ -103,11 +112,12 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
   <main id="view"></main>
 </div>
 <div id="reader" hidden>
-  <div id="rd-top"><button id="rd-close" aria-label="Schließen">‹</button><span id="rd-title"></span><button id="rd-snd" class="tb" aria-label="Klang">♪</button><button id="rd-mark" class="tb" aria-label="Lesezeichen">🔖</button><button id="rd-menu" class="tb" aria-label="Inhalt">☰</button></div>
+  <div id="rd-top"><button id="rd-close" aria-label="Schließen">‹</button><span id="rd-title"></span><button id="rd-mode" class="tb" aria-label="Lesemodus">≡</button><button id="rd-say" class="tb" aria-label="Vorlesen">🔊</button><button id="rd-snd" class="tb" aria-label="Klang">♪</button><button id="rd-mark" class="tb" aria-label="Lesezeichen">🔖</button><button id="rd-menu" class="tb" aria-label="Inhalt">☰</button></div>
   <div id="rd-info"></div>
   <input type="range" id="rd-seek" min="0" max="1" value="0" aria-label="Position">
   <div id="rd-stage"><div id="rd-word"><span id="w-l"></span><span id="w-p"></span><span id="w-r"></span></div></div>
   <div id="rd-ctx"></div>
+  <div id="rd-tools" hidden><button id="rd-hl" class="tb">✎ Markieren</button><button id="rd-check" class="tb">Verstanden? Kurzer Check</button></div>
   <div id="rd-ctl">
     <button id="rd-sent" aria-label="Satz zurück">⏮ Satz</button><button id="rd-slow">−25</button>
     <button id="rd-play" class="primary">▶</button><button id="rd-fast">+25</button><button id="rd-chunk">1</button>
@@ -124,7 +134,8 @@ ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
 'use strict';
 // =====================================================================
 // Speedreader: eigene Texte Wort fuer Wort lesen (RSVP) mit einstellbarem
-// Tempo. Texte aus Zwischenablage, Textdatei oder EPUB (ohne Kopierschutz).
+// Tempo. Texte aus Zwischenablage, Textdatei, PDF, EPUB (ohne Kopierschutz) oder von
+// einer Webseite. Dazu Zeilen-Modus, Vorlesen, Markieren und ein Verstaendnis-Check.
 // Aufbau: Daten -> Textaufbereitung (rein) -> EPUB/ZIP -> Leser -> Ansichten
 //         -> Selbsttest (srTests, ?debug=1). Details in README.md.
 // =====================================================================
@@ -134,6 +145,7 @@ const NATIVE = window.SrAndroid;
 // ---------------------------------------------------------------- Daten
 const K = { set: 'speedreader.settings.v1', lib: 'speedreader.library.v1', stats: 'speedreader.stats.v1', text: 'speedreader.text.' };
 const DEFAULT_SETTINGS = { schema: 1, wpm: 300, chunk: 1, font: 34, pauses: true, ramp: false, rampPerMin: 10, rampMax: 500,
+  mode: 'wort', brake: true, ttsLang: 'de', ttsRate: 1.1,       // Lesemodus wort | zeile, Tempo-Bremse, Vorlesen
   klang: 'aus', klangVol: 0.4,                                   // Fokus-Lesen: leiser Klangteppich im Leser
   filter: 'aus', filterMax: 0.8, filterStart: 19, filterFull: 22 };  // Abend-Farbfilter: aus | auto (nach Uhrzeit) | an
 let saveOk = true;
@@ -335,6 +347,286 @@ function decodeText(bytes) {
 }
 function b64ToBytes(s) { const bin = atob(s), b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; }
 
+// ---------------------------------------------------------------- PDF
+// Kleiner PDF-Textleser ohne Paket: Objekte einsammeln (auch aus Objekt-Stroemen), Seiten in
+// Lesereihenfolge durchgehen, in den Inhalts-Stroemen die Text-Befehle auswerten und die
+// Zeichen ueber die ToUnicode-Tabelle der Schrift uebersetzen. Kein Kopierschutz, keine
+// gescannten Seiten (das sind Bilder), kein Spaltensatz-Erkennen.
+function latin1(b) { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return s; }
+async function inflateZ(bytes) {
+  if (typeof DecompressionStream === 'undefined') throw new Error('Dieses Gerät kann PDF nicht entpacken');
+  const run = async b => new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  try { return await run(bytes); }
+  catch (e) { let n = bytes.length; while (n > 0 && (bytes[n - 1] === 10 || bytes[n - 1] === 13)) n--; if (n === bytes.length) throw e; return await run(bytes.subarray(0, n)); }   // angehaengtes Zeilenende
+}
+const PDF_WS = /[\x00\t\n\f\r ]/, PDF_DELIM = /[\x00\t\n\f\r ()<>\[\]{}\/%]/;
+// Ein PDF-Wert ab Position pos: Zahl, Name {n}, Zeichenkette {s} (rohe Bytes), Verweis {ref},
+// Liste oder Verzeichnis (Objekt ohne Prototyp). Liefert [Wert, neue Position].
+function pdfValue(s, pos) {
+  const skip = () => { for (;;) { while (pos < s.length && PDF_WS.test(s[pos])) pos++; if (s[pos] === '%') { while (pos < s.length && s[pos] !== '\n' && s[pos] !== '\r') pos++; } else break; } };
+  skip(); const c = s[pos];
+  if (c === '<' && s[pos + 1] === '<') {
+    pos += 2; const d = Object.create(null);
+    for (;;) { skip(); if (pos >= s.length) break; if (s[pos] === '>' && s[pos + 1] === '>') { pos += 2; break; } const k = pdfValue(s, pos); pos = k[1]; if (!k[0] || k[0].n === undefined) break; const v = pdfValue(s, pos); pos = v[1]; d[k[0].n] = v[0]; }
+    return [d, pos];
+  }
+  if (c === '[') { pos++; const a = []; for (;;) { skip(); if (pos >= s.length) break; if (s[pos] === ']') { pos++; break; } const v = pdfValue(s, pos); if (v[1] <= pos) { pos++; continue; } pos = v[1]; a.push(v[0]); } return [a, pos]; }
+  if (c === '/') { let e = pos + 1; while (e < s.length && !PDF_DELIM.test(s[e])) e++; return [{ n: s.slice(pos + 1, e).replace(/#([0-9A-Fa-f]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16))) }, e]; }
+  if (c === '(') {
+    let depth = 1, out = ''; pos++;
+    while (pos < s.length && depth) {
+      const ch = s[pos++];
+      if (ch === '\\') {
+        const n = s[pos++];
+        if (n >= '0' && n <= '7') { let o = n; while (o.length < 3 && s[pos] >= '0' && s[pos] <= '7') o += s[pos++]; out += String.fromCharCode(parseInt(o, 8) & 255); }
+        else if (n === '\r') { if (s[pos] === '\n') pos++; } else if (n === '\n') { /* Zeilenfortsetzung */ }
+        else out += ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' })[n] || n;
+      } else if (ch === '(') { depth++; out += ch; } else if (ch === ')') { if (--depth) out += ch; } else out += ch;
+    }
+    return [{ s: out }, pos];
+  }
+  if (c === '<') { let e = s.indexOf('>', pos); if (e < 0) e = s.length; let h = s.slice(pos + 1, e).replace(/[^0-9A-Fa-f]/g, ''); if (h.length % 2) h += '0'; let out = ''; for (let i = 0; i < h.length; i += 2) out += String.fromCharCode(parseInt(h.substr(i, 2), 16)); return [{ s: out }, e + 1]; }
+  const m = /^[+-]?(\d+\.?\d*|\.\d+)/.exec(s.slice(pos, pos + 40));
+  if (m) { const r = /^(\d+)\s+(\d+)\s+R(?![A-Za-z])/.exec(s.slice(pos, pos + 40)); if (r) return [{ ref: +r[1] }, pos + r[0].length]; return [parseFloat(m[0]), pos + m[0].length]; }
+  let e = pos; while (e < s.length && !PDF_DELIM.test(s[e])) e++;
+  if (e === pos) return [null, pos + 1];
+  const w = s.slice(pos, e); return [w === 'true' ? true : w === 'false' ? false : w === 'null' ? null : { op: w }, e];
+}
+// Namen von Zeichen, die in alten PDFs ohne ToUnicode-Tabelle vorkommen (Auswahl fuer deutsche Texte).
+const PDF_GLYPH = { adieresis: 'ä', odieresis: 'ö', udieresis: 'ü', Adieresis: 'Ä', Odieresis: 'Ö', Udieresis: 'Ü', germandbls: 'ß', quotedblleft: '“', quotedblright: '”', quotedblbase: '„', quoteleft: '‘', quoteright: '’',
+  quotesinglbase: '‚', endash: '–', emdash: '—', bullet: '•', ellipsis: '…', fi: 'fi', fl: 'fl', ff: 'ff', ffi: 'ffi', ffl: 'ffl', hyphen: '-', space: ' ', guillemotleft: '«', guillemotright: '»', eacute: 'é', egrave: 'è', agrave: 'à', ccedilla: 'ç', Euro: '€', section: '§', degree: '°' };
+// ToUnicode-Tabelle (CMap) lesen: Code -> Text.
+function pdfCMap(txt) {
+  const map = new Map(), hex = h => { let o = ''; for (let i = 0; i < h.length; i += 4) o += String.fromCharCode(parseInt(h.substr(i, 4).padEnd(4, '0'), 16)); return o; };
+  let two = false, m;
+  const reC = /beginbfchar([\s\S]*?)endbfchar/g, reR = /beginbfrange([\s\S]*?)endbfrange/g;
+  while ((m = reC.exec(txt))) { const re = /<([0-9A-Fa-f\s]+)>\s*<([0-9A-Fa-f\s]*)>/g; let x; while ((x = re.exec(m[1]))) { const a = x[1].replace(/\s/g, ''); if (a.length > 2) two = true; map.set(parseInt(a, 16), hex(x[2].replace(/\s/g, ''))); } }
+  while ((m = reR.exec(txt))) {
+    const re = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]*)>|\[([^\]]*)\])/g; let x;
+    while ((x = re.exec(m[1]))) {
+      const a = parseInt(x[1], 16), b = parseInt(x[2], 16); if (x[1].length > 2) two = true; if (b - a > 65535) continue;
+      if (x[3] !== undefined) { const base = hex(x[3]), head = base.slice(0, -1), last = base.charCodeAt(base.length - 1) || 0; for (let c = a; c <= b; c++) map.set(c, head + String.fromCharCode(last + c - a)); }
+      else { const list = x[4].match(/<[0-9A-Fa-f]*>/g) || []; list.forEach((h, i) => map.set(a + i, hex(h.slice(1, -1)))); }
+    }
+  }
+  if (/begincodespacerange\s*<[0-9A-Fa-f]{4}>/.test(txt)) two = true;
+  return { map, two };
+}
+const CP1252 = (() => { try { const d = new TextDecoder('windows-1252'), a = []; for (let i = 0; i < 256; i++) a.push(d.decode(new Uint8Array([i]))); return a; } catch (e) { return null; } })();
+// Zeilen einer Seite ([{y, size, text}] in Lesereihenfolge) zu Absaetzen fuegen.
+function pdfParagraphs(lines) {
+  const L = lines.map(l => ({ y: l.y, size: l.size, text: l.text.replace(/\s+/g, ' ').trim() })).filter(l => l.text && !/^\d{1,4}$/.test(l.text));   // leere Zeilen und Seitenzahlen weg
+  if (!L.length) return [];
+  const gaps = []; for (let i = 1; i < L.length; i++) { const g = L[i - 1].y - L[i].y; if (g > 0 && g < 4 * Math.max(L[i].size, 4)) gaps.push(g); }
+  gaps.sort((a, b) => a - b); const med = gaps.length ? gaps[gaps.length >> 1] : 0, out = [L[0].text];
+  for (let i = 1; i < L.length; i++) {
+    const g = L[i - 1].y - L[i].y, brk = g < -0.5 || (med && g > 1.35 * med) || Math.abs(L[i].size - L[i - 1].size) > 0.12 * Math.max(L[i].size, L[i - 1].size);
+    if (brk) out.push(L[i].text); else out[out.length - 1] = joinLines(out[out.length - 1], L[i].text);
+  }
+  return out;
+}
+// Zwei Zeilen verbinden; ein Trennstrich vor einem Kleinbuchstaben faellt weg.
+function joinLines(a, b) { return /[A-Za-zÀ-ÿ][-\u2010\u00ad]$/.test(a) && /^[a-zà-ÿ]/.test(b) ? a.slice(0, -1) + b : a + ' ' + b; }
+async function parsePdf(bytes) {
+  const s = latin1(bytes);
+  if (s.slice(0, 1024).indexOf('%PDF-') < 0) throw new Error('Keine PDF-Datei');
+  if (/\/Encrypt\s*(\d+\s+\d+\s+R|<<)/.test(s)) throw new Error('Dieses PDF ist verschlüsselt oder kopiergeschützt und lässt sich nicht lesen.');
+  // 1. Alle Objekte einsammeln
+  const objs = new Map(), re = /(\d+)\s+(\d+)\s+obj\b/g; let m;
+  while ((m = re.exec(s))) {
+    let v; try { v = pdfValue(s, re.lastIndex); } catch (e) { continue; }
+    const o = { v: v[0] }; let p = v[1]; while (p < s.length && PDF_WS.test(s[p])) p++;
+    if (s.startsWith('stream', p)) {
+      p += 6; if (s[p] === '\r') p++; if (s[p] === '\n') p++;
+      let len = o.v && typeof o.v.Length === 'number' ? o.v.Length : -1;
+      if (len < 0 || !/^\s*endstream/.test(s.slice(p + len, p + len + 20))) { const e = s.indexOf('endstream', p); len = e < 0 ? 0 : e - p; }
+      o.start = p; o.len = len; re.lastIndex = p + len;
+    }
+    objs.set(+m[1], o);
+  }
+  const deref = x => { let n = 0; while (x && x.ref !== undefined && n++ < 20) { const o = objs.get(x.ref); x = o ? o.v : null; } return x; };
+  const cache = new Map();
+  const streamOf = async x => {
+    const o = x && x.ref !== undefined ? objs.get(x.ref) : null; if (!o || o.start === undefined) return null;
+    if (cache.has(o)) return cache.get(o);
+    const L = deref(o.v.Length);          // die Laenge steht oft in einem eigenen Objekt; ohne sie haengt ein Zeilenende am Strom
+    let data = bytes.subarray(o.start, o.start + (typeof L === 'number' && L > 0 && L <= o.len ? L : o.len)), f = deref(o.v.Filter); f = f ? (Array.isArray(f) ? f : [f]) : [];
+    try { for (const x2 of f) { const n = deref(x2).n; if (n === 'FlateDecode' || n === 'Fl') data = await inflateZ(data); else throw new Error(n); } } catch (e) { data = null; }
+    cache.set(o, data); return data;
+  };
+  // Objekt-Stroeme (PDF 1.5) auspacken
+  for (const [num, o] of Array.from(objs)) {
+    if (!o.v || typeof o.v !== 'object' || !o.v.Type || o.v.Type.n !== 'ObjStm') continue;
+    const d = await streamOf({ ref: num }); if (!d) continue;
+    const t = latin1(d), first = o.v.First || 0, head = t.slice(0, first).trim().split(/\s+/).map(Number);
+    for (let i = 0; i + 1 < head.length; i += 2) { if (objs.has(head[i]) && objs.get(head[i]).start !== undefined) continue; try { objs.set(head[i], { v: pdfValue(t, first + head[i + 1])[0] }); } catch (e) {} }
+  }
+  // 2. Seiten in Reihenfolge
+  const pages = [], seen = new Set();
+  const walk = (ref, res, depth) => {
+    const n = deref(ref); if (!n || typeof n !== 'object' || depth > 40 || (ref && ref.ref !== undefined && seen.has(ref.ref))) return; if (ref && ref.ref !== undefined) seen.add(ref.ref);
+    const r = n.Resources || res;
+    if (n.Kids) (deref(n.Kids) || []).forEach(k => walk(k, r, depth + 1)); else if (n.Contents) pages.push({ contents: n.Contents, res: r });
+  };
+  let cat = null; objs.forEach(o => { if (o.v && typeof o.v === 'object' && o.v.Type && o.v.Type.n === 'Catalog') cat = o.v; });
+  if (cat && cat.Pages) walk(cat.Pages, null, 0);
+  if (!pages.length) Array.from(objs.keys()).sort((a, b) => a - b).forEach(k => { const v = objs.get(k).v; if (v && typeof v === 'object' && v.Type && v.Type.n === 'Page' && v.Contents) pages.push({ contents: v.Contents, res: v.Resources }); });
+  if (!pages.length) throw new Error('Im PDF wurden keine Seiten gefunden.');
+  // 3. Schriften: Code -> Text und Zeichenbreite (in Tausendstel der Schriftgroesse)
+  const fonts = new Map();
+  const fontOf = async ref => {
+    const key = ref && ref.ref !== undefined ? ref.ref : ref; if (fonts.has(key)) return fonts.get(key);
+    const f = deref(ref) || {}, F = { two: f.Subtype && f.Subtype.n === 'Type0', map: null, diff: null, w: null, dw: 500 };
+    const tu = f.ToUnicode && await streamOf(f.ToUnicode);
+    if (tu) { const c = pdfCMap(latin1(tu)); F.map = c.map; if (c.two) F.two = true; }
+    const enc = deref(f.Encoding);
+    if (enc && typeof enc === 'object' && enc.Differences) { F.diff = {}; let code = 0; (deref(enc.Differences) || []).forEach(x => { if (typeof x === 'number') code = x; else if (x && x.n !== undefined) { if (PDF_GLYPH[x.n] !== undefined) F.diff[code] = PDF_GLYPH[x.n]; else if (x.n.length === 1) F.diff[code] = x.n; code++; } }); }
+    const ws = deref(f.Widths), first = deref(f.FirstChar) || 0;
+    if (Array.isArray(ws)) { F.w = new Map(); ws.forEach((x, i) => { const v = deref(x); if (typeof v === 'number') F.w.set(first + i, v); }); }
+    const desc = deref((deref(f.DescendantFonts) || [])[0]);
+    if (desc) {
+      if (typeof deref(desc.DW) === 'number') F.dw = deref(desc.DW); else F.dw = 1000;
+      const W = deref(desc.W);
+      if (Array.isArray(W)) { F.w = new Map(); for (let i = 0; i < W.length;) { const c = deref(W[i]), n = deref(W[i + 1]); if (Array.isArray(n)) { n.forEach((x, k) => F.w.set(c + k, deref(x))); i += 2; } else { const v = deref(W[i + 2]); if (n - c < 70000) for (let k = c; k <= n; k++) F.w.set(k, v); i += 3; } } }
+    }
+    fonts.set(key, F); return F;
+  };
+  // Rohe Bytes -> [Text, Breite in Schriftgroessen]
+  const show = (F, raw) => {
+    let o = '', w = 0;
+    if (!F) { o = raw.replace(/[^\x20-\x7e]/g, ''); return [o, o.length * 0.5]; }
+    const wd = c => { const v = F.w && F.w.get(c); return (typeof v === 'number' ? v : F.dw) / 1000; };
+    if (F.two) { for (let i = 0; i + 1 < raw.length; i += 2) { const c = raw.charCodeAt(i) << 8 | raw.charCodeAt(i + 1); w += wd(c); if (F.map) o += F.map.get(c) || ''; } return [o, w]; }
+    for (let i = 0; i < raw.length; i++) { const c = raw.charCodeAt(i), u = F.map ? F.map.get(c) : undefined; w += wd(c); o += u !== undefined ? u : F.diff && F.diff[c] !== undefined ? F.diff[c] : F.map ? '' : (CP1252 ? CP1252[c] : String.fromCharCode(c)); }
+    return [o, w];
+  };
+  // 4. Inhalts-Stroeme auswerten. Matrizen [a b c d e f]; mul(m, n) = erst m, dann n.
+  const mul = (m, n) => [m[0] * n[0] + m[1] * n[2], m[0] * n[1] + m[1] * n[3], m[2] * n[0] + m[3] * n[2], m[2] * n[1] + m[3] * n[3], m[4] * n[0] + m[5] * n[2] + n[4], m[4] * n[1] + m[5] * n[3] + n[5]];
+  const paras = []; let chars = 0;
+  for (const pg of pages) {
+    let c = deref(pg.contents), txt = '';
+    for (const r of (Array.isArray(c) ? c : [pg.contents])) { const d = await streamOf(r); if (d) txt += latin1(d) + '\n'; }
+    const fdict = deref((deref(pg.res) || {}).Font) || {}, lines = [];
+    let pos = 0, st = [], F = null, size = 12, lead = 0, ctm = [1, 0, 0, 1, 0, 0], tm = [1, 0, 0, 1, 0, 0], lm = [1, 0, 0, 1, 0, 0], cur = null, endX = 0, endY = 0; const stack = [];
+    // Text an der aktuellen Stelle ablegen; adv = Breite in Schriftgroessen.
+    const put = (t, adv) => {
+      const M = mul(tm, ctm), x = M[4], y = M[5], sz = size * Math.hypot(M[2], M[3]) || 12, step = adv * size;
+      if (t) {
+        if (!cur || Math.abs(y - cur.y) > 0.4 * sz) { cur = { y, size: sz, text: '' }; lines.push(cur); }
+        else if (x < endX - 3 * sz && cur.text) { cur = { y, size: sz, text: '' }; lines.push(cur); }             // weit nach links in derselben Hoehe: neue Spalte
+        else if (x > endX + 0.17 * sz && cur.text && !/\s$/.test(cur.text) && !/^\s/.test(t)) cur.text += ' ';      // Luecke ohne Leerzeichen-Glyphe
+        cur.text += t;
+      }
+      tm = mul([1, 0, 0, 1, step, 0], tm); if (t) { const E = mul(tm, ctm); endX = E[4]; endY = E[5]; }       // Luecken aus TJ zaehlen nicht zum Textende
+    };
+    const nl = (tx, ty) => { lm = mul([1, 0, 0, 1, tx, ty], lm); tm = lm.slice(); };
+    while (pos < txt.length) {
+      let v; try { v = pdfValue(txt, pos); } catch (e) { break; }
+      if (v[1] <= pos) { pos++; continue; } pos = v[1]; const x = v[0];
+      if (!x || x.op === undefined) { st.push(x); if (st.length > 64) st.shift(); continue; }
+      const op = x.op, n = k => (typeof st[st.length - k] === 'number' ? st[st.length - k] : 0);
+      if (op === 'q') stack.push(ctm); else if (op === 'Q') { if (stack.length) ctm = stack.pop(); }
+      else if (op === 'cm') ctm = mul([n(6), n(5), n(4), n(3), n(2), n(1)], ctm);
+      else if (op === 'BT') { tm = [1, 0, 0, 1, 0, 0]; lm = tm.slice(); }
+      else if (op === 'Tf') { const nm = st[st.length - 2]; size = n(1) || size; F = nm && nm.n !== undefined && fdict[nm.n] ? await fontOf(fdict[nm.n]) : null; }
+      else if (op === 'TL') lead = n(1);
+      else if (op === 'Td') nl(n(2), n(1));
+      else if (op === 'TD') { lead = -n(1); nl(n(2), n(1)); }
+      else if (op === 'T*') nl(0, -lead);
+      else if (op === 'Tm') { lm = [n(6), n(5), n(4), n(3), n(2), n(1)]; tm = lm.slice(); }
+      else if (op === 'Tj' || op === "'" || op === '"') { if (op !== 'Tj') nl(0, -lead); const sv = st[st.length - 1]; if (sv && sv.s !== undefined) { const r = show(F, sv.s); put(r[0], r[1]); } }
+      else if (op === 'TJ') { const a = st[st.length - 1]; if (Array.isArray(a)) a.forEach(e => { if (e && e.s !== undefined) { const r = show(F, e.s); put(r[0], r[1]); } else if (typeof e === 'number') put('', -e / 1000); }); }
+      else if (op === 'BI') { const e = txt.indexOf('EI', txt.indexOf('ID', pos)); pos = e < 0 ? txt.length : e + 2; }
+      st = [];
+    }
+    pdfParagraphs(lines).forEach(p => {
+      chars += p.length; const last = paras[paras.length - 1];
+      if (last && !/[.!?:…"”»«]$/.test(last) && /^[a-zà-ÿ]/.test(p) && last.length > 60) paras[paras.length - 1] = joinLines(last, p); else paras.push(p);   // Absatz laeuft ueber den Seitenwechsel
+    });
+  }
+  if (chars < 20) throw new Error('Kein Text im PDF gefunden. Gescannte Seiten sind Bilder; die kann die App nicht lesen.');
+  let title = ''; objs.forEach(o => { const t = o.v && typeof o.v === 'object' && !Array.isArray(o.v) && o.v.Title && o.v.Producer !== undefined ? o.v.Title : null; if (t && t.s !== undefined) title = pdfString(t.s); });
+  return { title: title.trim(), text: paras.join('\n\n'), pages: pages.length };
+}
+// Textfeld aus dem PDF (Titel): UTF-16 mit Marke oder die PDF-eigene Kodierung (nahe Latin-1).
+function pdfString(raw) {
+  if (raw.charCodeAt(0) === 0xFE && raw.charCodeAt(1) === 0xFF) { let o = ''; for (let i = 2; i + 1 < raw.length; i += 2) o += String.fromCharCode(raw.charCodeAt(i) << 8 | raw.charCodeAt(i + 1)); return o; }
+  return raw;
+}
+
+// ---------------------------------------------------------------- Webseite -> Artikeltext
+// Aus dem HTML einer Seite den Lesetext holen: Navigation, Formulare und Skripte weg, dann den
+// Bereich mit dem meisten Absatztext nehmen. Kein Ersatz fuer einen Lesemodus, aber fuer
+// Artikel und Blogbeitraege reicht es.
+function htmlArticle(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html'); if (!doc.body) return { title: '', text: '' };
+  const meta = doc.querySelector('meta[property="og:title"]'), tt = doc.querySelector('title');
+  doc.body.querySelectorAll('script,style,noscript,nav,header,footer,aside,form,figure,button,svg,iframe,template,dialog,[aria-hidden="true"],[hidden]').forEach(n => n.remove());
+  const norm = n => n.textContent.replace(/\s+/g, ' ').trim(), score = new Map();
+  doc.body.querySelectorAll('p').forEach(p => { const len = norm(p).length; if (len < 40) return; let e = p.parentElement, w = 1; for (let k = 0; k < 3 && e; k++) { score.set(e, (score.get(e) || 0) + len * w); w *= 0.6; e = e.parentElement; } });
+  let root = null, best = 0; score.forEach((v, e) => { if (v > best) { best = v; root = e; } });
+  const art = doc.body.querySelector('article,main,[role="main"]');
+  if (art && norm(art).length >= 0.6 * (root ? norm(root).length : 0)) root = art;
+  root = root || doc.body;
+  const SEL = 'p,h1,h2,h3,h4,li,blockquote,pre', out = [];
+  root.querySelectorAll(SEL).forEach(n => { if (n.querySelector(SEL)) return; const t = norm(n); if (t.length > 1) out.push(t); });
+  const h1 = root.querySelector('h1') || doc.body.querySelector('h1');
+  return { title: ((meta && meta.getAttribute('content')) || (h1 && norm(h1)) || (tt && norm(tt)) || '').slice(0, 120), text: out.join('\n\n') };
+}
+// Aus geteiltem Text einen einzelnen Link fischen ("Titel\nhttps://…"); null, wenn es normaler Text ist.
+function sharedUrl(t) {
+  t = String(t).trim(); if (t.length > 600) return null;
+  const m = t.match(/https?:\/\/[^\s<>"']+/g); if (!m || m.length !== 1) return null;
+  return t.replace(m[0], '').trim().split(/\s+/).filter(Boolean).length <= 25 ? m[0].replace(/[).,;]+$/, '') : null;
+}
+
+// ---------------------------------------------------------------- Saetze, Restzeit, Tempo-Bremse, Markieren, Verstaendnis
+const SENT_END = /[.!?…]["'»«“”)\]]*$/;
+// Satz um Wort i: [a, b). Ein Absatzanfang trennt immer; hoechstens max Woerter.
+function sentBounds(words, para, i, max) {
+  i = clamp(i, 0, Math.max(0, words.length - 1)); let a = i, b = i + 1; max = max || 60;
+  while (a > 0 && !SENT_END.test(words[a - 1]) && !para.has(a) && i - a < max) a--;
+  while (b < words.length && !SENT_END.test(words[b - 1]) && !para.has(b) && b - a < max) b++;
+  return [a, b];
+}
+// Woerter [a, b) als Text. Stuecke, in die splitLong ein langes Wort geteilt hat (14 Zeichen plus
+// Strich), werden wieder zusammengesetzt. offs[k] = Position des Worts a + k im Text.
+function wordsText(words, a, b) {
+  let text = ''; const offs = [];
+  for (let k = a; k < b; k++) { const w = words[k], part = w.length === 15 && w[14] === '-' && k + 1 < b; offs.push(text.length); text += part ? w.slice(0, 14) : w + ' '; }
+  return { text: text.trim(), offs };
+}
+// Echtes Lesetempo dieser Sitzung (ab 20 s), sonst Schaetzung aus der eingestellten Zahl.
+function realWpm(sessWords, sessMs, wpm) { return sessMs >= 20000 && sessWords > 20 ? sessWords / (sessMs / 60000) : wpm / 1.25; }
+// Restzeit in Minuten bis zum Ende des Kapitels (null ohne Kapitel) und des ganzen Texts.
+function remainParts(i, N, ch, real) {
+  const c = currentChapter(ch || [], i), end = c >= 0 && ch.length > 1 ? (c + 1 < ch.length ? ch[c + 1].i : N) : null;
+  return { chap: end === null ? null : Math.max(0, end - i) / real, total: Math.max(0, N - i) / real };
+}
+// Tempo-Bremse: Wer innerhalb von 90 s zweimal zum Satzanfang zurueckspringt, liest zu schnell.
+function brakeHit(times, now) { const r = times.filter(t => now - t <= 90000); return { keep: r, hit: r.length >= 2 }; }
+// Markierte Stellen: Liste [{a, b, t}] nach Position. Tippen auf eine markierte Stelle hebt sie auf.
+function toggleHl(list, a, b, text) {
+  const k = list.findIndex(h => a < h.b && b > h.a);
+  if (k >= 0) { list.splice(k, 1); return false; }
+  list.push({ a, b, t: text }); list.sort((x, y) => x.a - y.a); return true;
+}
+function hlExport(title, list, N) { return 'Markierte Stellen aus „' + title + '“\n\n' + list.map(h => '„' + h.t + '“ (S. ' + pageOf(h.a, N) + ')').join('\n\n'); }
+// Verstaendnis-Check: Saetze aus dem gelesenen Stueck [a, b) gegen Saetze, die dort nicht
+// vorkamen (fremd = Liste von Satztexten, z. B. aus dem noch ungelesenen Teil).
+function sentencesIn(words, para, a, b) {
+  const out = []; let i = a;
+  while (i < b) { const sb = sentBounds(words, para, i, 60), e = Math.max(sb[1], i + 1); if (sb[0] >= a && e <= b && e - sb[0] >= 6 && e - sb[0] <= 32) out.push(wordsText(words, sb[0], e).text); i = e; }
+  return out;
+}
+function checkBuild(read, fremd, rnd) {
+  const mix = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)), t = b[i]; b[i] = b[j]; b[j] = t; } return b; };
+  const R = mix(Array.from(new Set(read))), F = mix(Array.from(new Set(fremd)).filter(x => read.indexOf(x) < 0)), n = Math.min(3, F.length, Math.floor(R.length / 2));
+  if (n < 1) return null;
+  const out = []; for (let k = 0; k < n; k++) out.push(mix([{ t: R[2 * k], fremd: false }, { t: R[2 * k + 1], fremd: false }, { t: F[k], fremd: true }]));
+  return out;
+}
+
 // ---------------------------------------------------------------- Bibliothek
 function saveLib() { store(K.lib, db.lib); }
 async function addText(title, text, chapters) {
@@ -347,9 +639,39 @@ async function addText(title, text, chapters) {
 }
 async function addFile(name, bytes) {
   try {
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) { const d = await parsePdf(bytes); return await addText(d.title || name.replace(/\.[^.]+$/, ''), d.text); }
     if (/\.epub$/i.test(name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) { const e = await parseEpub(bytes); return await addText(e.title || name.replace(/\.[^.]+$/, ''), e.text, chaptersFromParts(e.parts)); }
     return await addText(name.replace(/\.[^.]+$/, ''), decodeText(bytes));
   } catch (e) { return e && e.message || 'Datei konnte nicht gelesen werden.'; }
+}
+// Seite oder PDF von einem Link holen. In der App ueber die Bruecke (der WebView selbst darf
+// fremde Seiten nicht lesen), im Browser direkt.
+const fetchWait = {}; let fetchId = 0;
+window.srFetched = (id, status, type) => {
+  const w = fetchWait[id]; if (!w) return; delete fetchWait[id];
+  const b64 = status === 200 ? NATIVE.takeFetched(id) : '';
+  if (b64) w.res({ bytes: b64ToBytes(b64), type: type || '' });
+  else w.rej(new Error(status > 0 && status !== 200 ? 'Die Seite antwortet mit Fehler ' + status + '.' : 'Die Seite ließ sich nicht laden. Besteht eine Internetverbindung?'));
+};
+function fetchBytes(url) {
+  if (NATIVE && NATIVE.fetchUrl) return new Promise((res, rej) => {
+    const id = ++fetchId; fetchWait[id] = { res, rej };
+    setTimeout(() => { if (fetchWait[id]) { delete fetchWait[id]; rej(new Error('Die Seite hat nicht rechtzeitig geantwortet.')); } }, 30000);
+    NATIVE.fetchUrl(url, id);
+  });
+  return fetch(url).then(async r => { if (!r.ok) throw new Error('Die Seite antwortet mit Fehler ' + r.status + '.'); return { bytes: new Uint8Array(await r.arrayBuffer()), type: r.headers.get('content-type') || '' }; },
+    () => { throw new Error('Die Seite ließ sich nicht laden. Im Browser verbieten das die meisten Seiten; in der App geht es.'); });
+}
+async function addUrl(url) {
+  url = String(url).trim();
+  if (!/^https:\/\/[^\s]+\.[^\s]+/i.test(url) && !(location.protocol === 'http:' && url.indexOf(location.origin) === 0)) return 'Bitte einen vollständigen Link eingeben, der mit https:// beginnt.';
+  try {
+    const r = await fetchBytes(url), b = r.bytes;
+    if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return await addFile(decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() || 'PDF'), b);
+    const a = htmlArticle(decodeText(b));
+    if (tokenize(a.text).words.length < 50) return 'Auf der Seite wurde kein Artikeltext gefunden. Manche Seiten laden ihn erst nachträglich oder verlangen eine Anmeldung.';
+    return await addText(a.title, a.text);
+  } catch (e) { return e && e.message || 'Die Seite ließ sich nicht laden.'; }
 }
 const SAMPLE = 'Willkommen im Speedreader. Dieser kurze Text zeigt dir, wie die App funktioniert.\n\n' +
   'Statt mit den Augen über die Zeile zu wandern, bleibst du an einer Stelle: Die Wörter erscheinen nacheinander, und ein Buchstabe ist farbig markiert. Auf ihn richtest du den Blick.\n\n' +
@@ -357,11 +679,14 @@ const SAMPLE = 'Willkommen im Speedreader. Dieser kurze Text zeigt dir, wie die 
   'Fang mit einem Tempo an, bei dem du alles verstehst, und steigere dich langsam. Verstehen ist das Ziel, nicht die Zahl. Viel Spaß beim Lesen!';
 
 // ---------------------------------------------------------------- Leser
-const P = { on: false, item: null, words: [], para: new Set(), i: 0, timer: 0, due: 0, t0: 0, wpm: 300, startWpm: 300, playMs: 0, sessMs: 0, sessWords: 0, sessFrom: 0, flushedMs: 0, flushedWords: 0 };
+const P = { on: false, item: null, words: [], para: new Set(), i: 0, timer: 0, due: 0, t0: 0, wpm: 300, startWpm: 300, playMs: 0, sessMs: 0, sessWords: 0, sessFrom: 0, flushedMs: 0, flushedWords: 0,
+  say: false, sayA: 0, sayTok: 0, win: [0, 0], lastTop: -1, markMode: false, backs: [] };
+function lineMode() { return db.settings.mode === 'zeile' || P.say; }
 function chunkN() { return clamp(db.settings.chunk, 1, 3); }
 function showWord() {
   const n = chunkN(), i = Math.min(P.i, P.words.length - 1), w = P.words[i] || '';
   const stage = $('rd-stage'), box = $('rd-word');
+  stage.hidden = lineMode(); if (lineMode()) return;          // Zeilen-Modus und Vorlesen zeigen den Text statt des einzelnen Worts
   if (n === 1) {
     const k = orpIndex(w); stage.className = ''; box.className = '';
     $('w-l').textContent = w.slice(0, k); $('w-p').textContent = w.slice(k, k + 1); $('w-r').textContent = w.slice(k + 1);
@@ -374,23 +699,78 @@ function showWord() {
 }
 function updateInfo() {
   const N = P.words.length, left = N - P.i;
-  $('rd-info').textContent = 'Seite ' + pageOf(P.i, N) + ' von ' + pageCount(N) + ' · ' + Math.round(P.i / N * 100) + ' % · noch ' + fmtMin(estMinutes(left, P.wpm));
+  const rm = remainParts(Math.min(P.i, N - 1), N, P.item && P.item.chapters, realWpm(P.sessWords, P.sessMs + (P.on ? performance.now() - P.t0 : 0), P.wpm));
+  $('rd-info').textContent = 'S. ' + pageOf(P.i, N) + '/' + pageCount(N) + ' · ' + Math.round(P.i / N * 100) + ' % · ' + (left <= 0 ? 'fertig' : rm.chap !== null ? 'Kapitel ' + fmtMin(rm.chap) + ' · gesamt ' + fmtMin(rm.total) : 'noch ' + fmtMin(rm.total));
+  $('rd-mode').className = 'tb' + (db.settings.mode === 'zeile' ? ' on' : ''); $('rd-say').className = 'tb' + (P.say ? ' on' : '');
   if (P.item) $('rd-mark').className = 'tb' + (markNear(P.item.marks || [], Math.min(P.i, N - 1)) >= 0 ? ' on' : '');
   $('rd-seek').max = N - 1; $('rd-seek').value = Math.min(P.i, N - 1);
-  $('rd-play').textContent = (P.on ? '⏸ ' : '▶ ') + Math.round(P.wpm) + ' WPM'; $('rd-chunk').textContent = chunkN() + (chunkN() > 1 ? ' Wörter' : ' Wort');
+  $('rd-play').textContent = (P.on ? '⏸ ' : '▶ ') + (P.say ? 'Vorlesen ' + String(db.settings.ttsRate).replace('.', ',') + '×' : Math.round(P.wpm) + ' WPM');
+  $('rd-slow').textContent = P.say ? 'langsamer' : '−25'; $('rd-fast').textContent = P.say ? 'schneller' : '+25'; $('rd-chunk').textContent = chunkN() + (chunkN() > 1 ? ' Wörter' : ' Wort');
 }
-function showContext() {
-  const el = $('rd-ctx');
-  if (P.on) { el.innerHTML = '<div class="hint small">Tippe auf das Wort, um anzuhalten.</div>'; return; }
-  const a = Math.max(0, P.i - 70), b = Math.min(P.words.length, P.i + 110); let h = '';
-  for (let k = a; k < b; k++) h += (P.para.has(k) && k > a ? '<br><br>' : '') + '<span data-i="' + k + '"' + (k === P.i ? ' class="cur"' : '') + '>' + esc(P.words[k]) + '</span> ';
+// Wort-Spannen fuer den Bereich [a, b); markierte Stellen bekommen die Klasse hl.
+function ctxHtml(a, b) {
+  const hl = P.item && P.item.hl || []; let h = '', hi = 0;
+  for (let k = a; k < b; k++) { const w = P.words[k], part = w.length === 15 && w[14] === '-' && k + 1 < b;     // Stueck eines zerteilten langen Worts: ohne Strich und Luecke zeigen
+    while (hi < hl.length && hl[hi].b <= k) hi++; h += (P.para.has(k) && k > a ? '<br><br>' : '') + '<span data-i="' + k + '"' + (hi < hl.length && hl[hi].a <= k ? ' class="hl"' : '') + '>' + (part ? esc(w.slice(0, 14)) + '</span>' : esc(w) + '</span> '); }
+  return h;
+}
+// Klasse cls auf die Woerter [a, b) setzen und ueberall sonst entfernen.
+function setCur(a, b, cls) {
+  const el = $('rd-ctx'); el.querySelectorAll('span.' + cls).forEach(e => e.classList.remove(cls));
+  for (let k = a; k < b; k++) { const e = el.querySelector('span[data-i="' + k + '"]'); if (e) e.classList.add(cls); }
+}
+function followCur() { const c = $('rd-ctx').querySelector('span.cur'); if (c && c.offsetTop !== P.lastTop) { P.lastTop = c.offsetTop; c.scrollIntoView({ block: 'center' }); } }
+function showContext(keepScroll) {
+  const el = $('rd-ctx'); $('rd-tools').hidden = P.on || !P.item; el.className = P.markMode && !P.on ? 'mark' : '';
+  $('rd-hl').className = 'tb' + (P.markMode ? ' on' : ''); $('rd-hl').textContent = P.markMode ? '✎ Satz antippen' : '✎ Markieren';
+  if (P.on && !lineMode()) { el.innerHTML = '<div class="hint small">Tippe auf das Wort, um anzuhalten.</div>'; return; }
+  const top = el.scrollTop, a = Math.max(0, P.i - 70), b = Math.min(P.words.length, P.i + (P.on ? 230 : 110)); P.win = [a, b];
   const ch = P.item && P.item.chapters || [], ci = currentChapter(ch, P.i);
-  el.innerHTML = (ci >= 0 ? '<div class="small" style="margin-bottom:10px;color:var(--acc)">' + esc(ch[ci].t) + '</div>' : '') + h; const cur = el.querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
+  el.innerHTML = (ci >= 0 ? '<div class="small" style="margin-bottom:10px;color:var(--acc)">' + esc(ch[ci].t) + '</div>' : '') + ctxHtml(a, b);
+  setCur(P.i, P.i + (P.on && !P.say ? chunkN() : 1), 'cur'); P.lastTop = -1;
+  if (keepScroll) el.scrollTop = top; else followCur();
+}
+// Zeilen-Modus: die Markierung wandert durch den normalen Text.
+function lineShow() {
+  const n = chunkN();
+  if (P.i < P.win[0] || P.i + n > P.win[1] - 3) showContext(); else { setCur(P.i, P.i + n, 'cur'); followCur(); }
+}
+// Vorlesen: Satz fuer Satz; der Satz ist hell, das gesprochene Wort markiert (wenn die Stimme es meldet).
+const Say = { id: 0, cb: null,
+  avail() { return !!(NATIVE && NATIVE.ttsSpeak) || typeof speechSynthesis !== 'undefined'; },
+  speak(text, rate, lang, done, word, tries) {
+    const id = ++Say.id; Say.cb = { id, done, word };
+    if (NATIVE && NATIVE.ttsSpeak) {
+      // Die Stimme braucht nach dem App-Start einen Moment; so lange kurz warten.
+      if (!NATIVE.ttsSpeak(text, rate, lang, id)) { if ((tries || 0) < 8) setTimeout(() => { if (Say.cb && Say.cb.id === id) Say.speak(text, rate, lang, done, word, (tries || 0) + 1); }, 500); else Say.end(id, false); }
+      return;
+    }
+    try {
+      const u = new SpeechSynthesisUtterance(text); u.lang = lang === 'en' ? 'en-GB' : 'de-DE'; u.rate = rate;
+      u.onend = () => Say.end(id, true); u.onerror = () => Say.end(id, false); u.onboundary = e => { if (Say.cb && Say.cb.id === id) word(e.charIndex); };
+      speechSynthesis.speak(u);
+    } catch (e) { Say.end(id, false); }
+  },
+  end(id, ok) { const c = Say.cb; if (c && c.id === id) { Say.cb = null; c.done(ok); } },
+  stop() { Say.id++; Say.cb = null; if (NATIVE && NATIVE.ttsStop) NATIVE.ttsStop(); else { try { speechSynthesis.cancel(); } catch (e) {} } } };
+window.srTts = (id, kind, a) => { const c = Say.cb; if (!c || c.id !== id) return; if (kind === 'range') c.word(a); else Say.end(id, kind === 'done'); };
+function sayNext() {
+  if (!P.on) return;
+  if (P.i >= P.words.length) { pause(true); return; }
+  const a = P.i, b = Math.max(a + 1, sentBounds(P.words, P.para, a, 45)[1]), wt = wordsText(P.words, a, b), offs = wt.offs, text = wt.text;
+  P.sayA = a; const tok = ++P.sayTok;
+  if (a < P.win[0] || b > P.win[1]) showContext();
+  setCur(a, b, 'sent'); setCur(a, a + 1, 'cur'); followCur();
+  Say.speak(text, db.settings.ttsRate, db.settings.ttsLang, ok => {
+    if (tok !== P.sayTok || !P.on) return;
+    if (!ok) { pause(); $('rd-info').textContent = 'Die Sprachausgabe ist nicht verfügbar.'; return; }
+    P.sessWords += b - a; P.i = b; updateInfo(); sayNext();
+  }, ci => { if (tok !== P.sayTok) return; let k = 0; while (k + 1 < offs.length && offs[k + 1] <= ci) k++; setCur(a + k, a + k + 1, 'cur'); followCur(); });
 }
 function step() {
   if (!P.on) return;
   if (P.i >= P.words.length) { pause(true); return; }
-  showWord();
+  if (lineMode()) lineShow(); else showWord();
   const n = chunkN(); let f = 0;
   for (let k = 0; k < n && P.i + k < P.words.length; k++) f += delayFactor(P.words[P.i + k], P.para.has(P.i + k + 1) || P.i + k + 1 >= P.words.length, db.settings.pauses);
   if (db.settings.ramp) P.wpm = Math.min(Math.max(P.startWpm, db.settings.rampMax), P.startWpm + db.settings.rampPerMin * (P.playMs + performance.now() - P.t0) / 60000);
@@ -401,14 +781,15 @@ function step() {
 function play() {
   if (P.on || !P.words.length) return;
   if (P.i >= P.words.length) P.i = 0;
-  P.on = true; P.t0 = P.due = performance.now(); showContext(); updateInfo(); step();
+  P.on = true; P.t0 = P.due = performance.now(); showWord(); showContext(); updateInfo(); if (P.say) sayNext(); else step();
 }
 // Haelt an und bleibt auf dem zuletzt gezeigten Wort stehen.
 function pause(finished) {
   if (!P.on) return;
   P.on = false; clearTimeout(P.timer);
   const dt = performance.now() - P.t0; P.playMs += dt; P.sessMs += dt;
-  P.i = finished ? P.words.length : Math.max(0, Math.min(P.i, P.words.length) - chunkN());
+  if (P.say) { Say.stop(); P.sayTok++; }
+  P.i = finished ? P.words.length : P.say ? P.sayA : Math.max(0, Math.min(P.i, P.words.length) - chunkN());
   flush(); showWord(); updateInfo(); showContext();
   if (finished) $('rd-ctx').insertAdjacentHTML('afterbegin', '<div class="card good">Text zu Ende gelesen.</div>');
 }
@@ -427,20 +808,70 @@ async function openReader(id) {
   const tok = tokenize(text);
   // Texte aus aelteren Versionen haben noch kein Kapitelverzeichnis und keine Lesezeichen.
   if (!item.chapters) item.chapters = detectChapters(text); if (!item.marks) item.marks = []; saveLib();
-  Object.assign(P, { on: false, item, words: tok.words, para: tok.para, i: item.pos >= tok.words.length ? 0 : item.pos, wpm: db.settings.wpm, startWpm: db.settings.wpm, playMs: 0, sessMs: 0, sessWords: 0, flushedMs: 0, flushedWords: 0 });
-  P.sessFrom = P.i;
+  Object.assign(P, { on: false, item, words: tok.words, para: tok.para, i: item.pos >= tok.words.length ? 0 : item.pos, wpm: db.settings.wpm, startWpm: db.settings.wpm, playMs: 0, sessMs: 0, sessWords: 0, flushedMs: 0, flushedWords: 0, say: false, markMode: false, backs: [] });
+  P.sessFrom = P.i; if (!item.hl) item.hl = [];
   $('rd-title').textContent = item.title; $('reader').hidden = false; location.hash = 'read'; focusUpdate(true);
   showWord(); updateInfo(); showContext();
 }
-function closeReader() { pause(); flush(); closeModal(); $('reader').hidden = true; P.item = null; focusUpdate(false); }
+function closeReader() { pause(); flush(); closeModal(); $('reader').hidden = true; P.item = null; P.say = false; P.markMode = false; focusUpdate(false); }
 function setWpm(v) { P.wpm = P.startWpm = clamp(Math.round(v / 5) * 5, 100, 1200); P.playMs = 0; if (P.on) P.t0 = performance.now(); db.settings.wpm = P.wpm; store(K.set, db.settings); updateInfo(); }
 $('rd-stage').onclick = () => { if (P.on) pause(); else play(); };
 $('rd-play').onclick = () => { if (P.on) pause(); else play(); };
-$('rd-slow').onclick = () => setWpm(P.wpm - 25); $('rd-fast').onclick = () => setWpm(P.wpm + 25);
-$('rd-sent').onclick = () => { const was = P.on; if (was) pause(); seekTo(sentenceStart(P.words, P.i)); if (was) play(); };
+const sayRate = d => { db.settings.ttsRate = clamp(Math.round((db.settings.ttsRate + d) * 10) / 10, 0.6, 2.5); store(K.set, db.settings); updateInfo(); };
+$('rd-slow').onclick = () => { if (P.say) sayRate(-0.1); else setWpm(P.wpm - 25); }; $('rd-fast').onclick = () => { if (P.say) sayRate(0.1); else setWpm(P.wpm + 25); };
+$('rd-sent').onclick = () => {
+  const was = P.on; if (was) pause(); seekTo(sentenceStart(P.words, P.i));
+  // Tempo-Bremse: zweimal zurueck in kurzer Zeit heisst, das Tempo ist fuer diesen Text zu hoch.
+  if (db.settings.brake && !P.say && was) { const r = brakeHit(P.backs.concat([Date.now()]), Date.now()); P.backs = r.keep; if (r.hit && P.wpm > 100) { P.backs = []; setWpm(P.wpm - 25); $('rd-info').textContent = 'Zweimal zurück: Tempo auf ' + Math.round(P.wpm) + ' gesenkt'; } }
+  if (was) play();
+};
+$('rd-mode').onclick = () => { const was = P.on; if (was) pause(); db.settings.mode = db.settings.mode === 'zeile' ? 'wort' : 'zeile'; store(K.set, db.settings); showWord(); showContext(); updateInfo(); $('rd-info').textContent = db.settings.mode === 'zeile' ? 'Zeilen-Modus: die Markierung läuft durch den Text' : 'Wort für Wort'; if (was) play(); };
+$('rd-say').onclick = () => {
+  if (!P.item) return; if (P.on) pause();
+  if (!P.say && !Say.avail()) { $('rd-info').textContent = 'Auf diesem Gerät gibt es keine Sprachausgabe.'; return; }
+  P.say = !P.say; P.markMode = false; if (P.say) P.i = sentBounds(P.words, P.para, Math.min(P.i, P.words.length - 1), 45)[0];      // am Satzanfang beginnen
+  showWord(); showContext(); updateInfo(); if (P.say) play();
+};
+$('rd-hl').onclick = () => { P.markMode = !P.markMode; showContext(true); };
+$('rd-check').onclick = () => startCheck();
 $('rd-chunk').onclick = () => { const was = P.on; if (was) pause(); db.settings.chunk = chunkN() % 3 + 1; store(K.set, db.settings); showWord(); updateInfo(); if (was) play(); };
 $('rd-seek').oninput = e => { if (P.on) pause(); seekTo(+e.target.value); };
-$('rd-ctx').onclick = e => { const s = e.target.closest('span[data-i]'); if (s && !P.on) seekTo(+s.dataset.i); };
+$('rd-ctx').onclick = e => {
+  if (P.on) { if (lineMode()) pause(); return; }
+  const s = e.target.closest('span[data-i]'); if (!s) return;
+  if (!P.markMode) { seekTo(+s.dataset.i); return; }
+  const sb = sentBounds(P.words, P.para, +s.dataset.i); toggleHl(P.item.hl, sb[0], sb[1], wordsText(P.words, sb[0], sb[1]).text); saveLib(); showContext(true);
+};
+// Verstaendnis-Check ohne Netz: Welcher Satz kam im gerade gelesenen Stueck nicht vor?
+async function startCheck() {
+  if (!P.item) return;
+  const N = P.words.length, b = Math.min(P.i, N), a = Math.max(0, P.sessFrom <= b ? Math.max(P.sessFrom, b - 700) : b - 700);
+  if (b - a < 80) { toast('Lies erst ein Stück am Stück (etwa 80 Wörter), dann kann ich dich dazu abfragen.'); return; }
+  const read = sentencesIn(P.words, P.para, a, b); let fremd = sentencesIn(P.words, P.para, b + 150, Math.min(N, b + 1650));
+  if (fremd.length < 3) { const o = db.lib.find(x => x.id !== P.item.id); if (o) { const tk = tokenize(await Texts.get(o.id) || ''); fremd = fremd.concat(sentencesIn(tk.words, tk.para, 0, Math.min(tk.words.length, 1500))); } }
+  const Q = checkBuild(read, fremd, Math.random);
+  if (!Q) { toast('Dafür ist das Stück zu kurz, oder es gibt keinen Vergleichstext: Am Ende eines Texts braucht der Check einen zweiten Text in der Bibliothek.'); return; }
+  let k = 0, right = 0;
+  const ask = () => openModal('<h3>Verständnis-Check ' + (k + 1) + ' von ' + Q.length + '</h3><div class="small">Welcher dieser Sätze kam in dem Stück, das du gerade gelesen hast, <b>nicht</b> vor?</div><div class="q">' +
+    Q[k].map((o, j) => '<button data-o="' + j + '">' + esc(o.t) + '</button>').join('') + '</div><div class="btns"><button class="ghost" id="q-x">Abbrechen</button><button class="primary" id="q-next" hidden>Weiter</button></div>', root => {
+    $('q-x').onclick = closeModal;
+    root.querySelectorAll('[data-o]').forEach(bt => bt.onclick = () => {
+      if (!$('q-next').hidden) return; const o = Q[k][+bt.dataset.o]; if (o.fremd) right++;
+      root.querySelectorAll('[data-o]').forEach(x => { if (Q[k][+x.dataset.o].fremd) x.classList.add('ok'); }); if (!o.fremd) bt.classList.add('no'); $('q-next').hidden = false;
+    });
+    $('q-next').onclick = () => { k++; if (k < Q.length) ask(); else done(); };
+  });
+  const done = () => {
+    const d = db.stats[today()] || (db.stats[today()] = { ms: 0, words: 0 }); d.cq = (d.cq || 0) + Q.length; d.cr = (d.cr || 0) + right; store(K.stats, db.stats);
+    const bad = right * 2 < Q.length;
+    openModal('<h3>' + right + ' von ' + Q.length + ' richtig</h3><div class="small">' + (bad ? 'Das Stück ist nicht hängen geblieben. Für diesen Text ist das Tempo wahrscheinlich zu hoch.' : right === Q.length ? 'Du hast erkannt, was im Text stand. Das Tempo passt.' : 'Das meiste ist angekommen.') +
+      '</div><div class="muted small" style="margin-top:6px">Der Check prüft nur, ob du Sätze wiedererkennst. Ob du den Inhalt verstanden hast, zeigt besser das Quiz im Claude-Chat (unter Tipps).</div>' +
+      '<div class="btns">' + (bad && P.wpm > 150 ? '<button id="q-slow">Tempo um 50 senken</button>' : '') + '<button class="primary" id="q-x">OK</button></div>', () => {
+      $('q-x').onclick = closeModal; if ($('q-slow')) $('q-slow').onclick = () => { setWpm(P.wpm - 50); closeModal(); };
+    });
+  };
+  ask();
+}
 $('rd-close').onclick = () => history.back();
 // Lesezeichen an der aktuellen Stelle setzen oder entfernen.
 $('rd-mark').onclick = () => {
@@ -459,6 +890,8 @@ $('rd-menu').onclick = () => {
     '<div class="row" style="margin-top:10px"><input type="number" id="k-page" class="short" inputmode="numeric" min="1" max="' + pageCount(N) + '" placeholder="Seite"><button id="k-go" class="grow">Zu dieser Seite</button></div>' +
     '<div class="sheet"><h4>Lesezeichen</h4>' + (bm.length ? bm.map((b, k) => row(b.i, b.t + ' …', 'Seite ' + pageOf(b.i, N) + ' · ' + b.d.slice(8, 10) + '.' + b.d.slice(5, 7) + '.', '<button class="ghost small" data-x="' + k + '">✕</button>')).join('')
       : '<div class="muted small">Noch keins. Mit 🔖 im Leser setzt du eins an der aktuellen Stelle.</div>') +
+    '<h4>Markierte Stellen</h4>' + ((it.hl || []).length ? it.hl.map((b, k) => row(b.a, b.t, 'Seite ' + pageOf(b.a, N), '<button class="ghost small" data-hx="' + k + '">✕</button>')).join('') + '<button class="block" id="k-copy">Alle markierten Stellen kopieren</button>'
+      : '<div class="muted small">Noch keine. Beim Anhalten „✎ Markieren“ wählen und einen Satz antippen.</div>') +
     '<h4>Kapitel</h4>' + (ch.length ? ch.map((c, k) => row(c.i, c.t, 'Seite ' + pageOf(c.i, N), '', k === cur ? ' cur' : '')).join('')
       : '<div class="muted small">In diesem Text wurden keine Kapitel erkannt.</div>') + '</div>' +
     '<div class="btns"><button class="ghost" id="k-x">Schließen</button></div>', () => {
@@ -466,6 +899,8 @@ $('rd-menu').onclick = () => {
     $('k-go').onclick = () => { const p = Math.round(+$('k-page').value); if (p >= 1) { closeModal(); seekTo(pageStart(Math.min(p, pageCount(N)), N)); } };
     $('modal-in').querySelectorAll('[data-j]').forEach(el => el.onclick = () => { closeModal(); seekTo(+el.dataset.j); });
     $('modal-in').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { it.marks.splice(+b.dataset.x, 1); saveLib(); closeModal(); updateInfo(); $('rd-menu').onclick(); });
+    $('modal-in').querySelectorAll('[data-hx]').forEach(b => b.onclick = () => { it.hl.splice(+b.dataset.hx, 1); saveLib(); closeModal(); showContext(true); $('rd-menu').onclick(); });
+    if ($('k-copy')) $('k-copy').onclick = () => copyText(hlExport(it.title, it.hl, N), ok => { $('k-copy').textContent = ok ? 'Kopiert ✓ (' + it.hl.length + ' Stellen)' : 'Kopieren fehlgeschlagen'; });
     const c = $('modal-in').querySelector('.item.cur'); if (c) c.scrollIntoView({ block: 'center' });
   });
 };
@@ -489,7 +924,9 @@ function toast(msg) { openModal('<p>' + esc(msg) + '</p><div class="btns"><butto
 async function checkShared() {
   if (!NATIVE || !NATIVE.takeSharedText) return;
   const t = NATIVE.takeSharedText(); if (!t) return;
-  const err = await addText('', t); if (err) toast(err); else if ((location.hash || '#home') === '#home') render('home');
+  const u = sharedUrl(t); if (u) toast('Seite wird geladen …');
+  const err = u ? await addUrl(u) : await addText('', t); if (u && !err) closeModal();
+  if (err) toast(err); else if ((location.hash || '#home') === '#home') render('home');
 }
 window.srShared = checkShared;
 // Prompt fuer ein Verstaendnis-Quiz im Claude-Chat (die App selbst ist offline).
@@ -706,14 +1143,17 @@ VIEWS.home = () => {
   $('h-add').onclick = () => go('add'); $('h-stats').onclick = () => go('stats'); $('h-info').onclick = () => go('info'); $('h-set').onclick = () => go('settings');
 };
 VIEWS.add = () => {
-  view.innerHTML = '<div class="card"><h2>Aus einer Datei</h2><div class="muted small">Textdatei (.txt) oder EPUB ohne Kopierschutz.</div><button class="block" id="a-file">Datei auswählen</button></div>' +
+  view.innerHTML = '<div class="card"><h2>Aus einer Datei</h2><div class="muted small">Textdatei (.txt), PDF mit echtem Text oder EPUB, jeweils ohne Kopierschutz.</div><button class="block" id="a-file">Datei auswählen</button></div>' +
+    '<div class="card"><h2>Von einer Webseite</h2><input type="text" id="a-url" inputmode="url" placeholder="https://…"><button class="block" id="a-get">Artikel holen</button>' +
+    '<div class="muted small" style="margin-top:6px">Die App lädt genau diese eine Seite und nimmt den Artikeltext heraus (oder ein PDF hinter dem Link). Sonst geht sie nie ins Netz. Seiten mit Anmeldung oder Bezahlschranke gehen nicht.</div></div>' +
     '<div class="card"><h2>Text einfügen</h2><label class="f" style="margin-top:0">Titel (optional)</label><input type="text" id="a-title">' +
     '<label class="f">Text</label><textarea id="a-text" placeholder="Text hier einfügen"></textarea>' +
     '<div class="row" style="margin-top:8px"><button class="grow" id="a-clip">Aus Zwischenablage</button><button class="grow primary" id="a-ok">Hinzufügen</button></div>' +
     '<div id="a-msg" class="small bad" style="margin-top:6px"></div></div>' +
-    '<div class="muted small">Tipp: In anderen Apps Text markieren, „Teilen“ wählen und Speedreader antippen.</div>';
+    '<div class="muted small">Tipp: In anderen Apps Text markieren, „Teilen“ wählen und Speedreader antippen. Auch ein geteilter Link aus dem Browser funktioniert.</div>';
   const done = err => { if (err) $('a-msg').textContent = err; else history.back(); };
   $('a-ok').onclick = async () => done(await addText($('a-title').value, $('a-text').value));
+  $('a-get').onclick = async () => { $('a-msg').textContent = ''; $('a-get').textContent = 'Seite wird geladen …'; const err = await addUrl($('a-url').value); if ($('a-get')) $('a-get').textContent = 'Artikel holen'; if (err && $('a-msg')) { $('a-msg').textContent = err; $('a-msg').scrollIntoView({ block: 'center' }); } else if (!err) history.back(); };
   $('a-clip').onclick = async () => {
     let t = '';
     if (NATIVE && NATIVE.readClipboard) t = NATIVE.readClipboard();
@@ -726,7 +1166,7 @@ VIEWS.add = () => {
       window.srFileReady = async () => { const name = NATIVE.takePickedName(), b64 = NATIVE.takePickedFile(); if (b64) { $('a-msg').textContent = 'Datei wird gelesen …'; done(await addFile(name || 'Datei', b64ToBytes(b64))); } };
       NATIVE.pickFile(); return;
     }
-    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.epub,text/plain,application/epub+zip';
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf';
     inp.onchange = async () => { const f = inp.files[0]; if (f) done(await addFile(f.name, new Uint8Array(await f.arrayBuffer()))); };
     inp.click();
   };
@@ -734,7 +1174,8 @@ VIEWS.add = () => {
 VIEWS.stats = () => {
   const days = Object.keys(db.stats).sort().reverse(), tot = days.reduce((a, d) => ({ ms: a.ms + db.stats[d].ms, words: a.words + db.stats[d].words }), { ms: 0, words: 0 });
   view.innerHTML = '<div class="card"><div class="row"><div class="grow"><div class="big">' + fmtMin(tot.ms / 60000) + '</div><div class="muted small">insgesamt</div></div>' +
-    '<div class="grow"><div class="big">' + tot.words.toLocaleString('de-DE') + '</div><div class="muted small">Wörter</div></div></div></div>' +
+    '<div class="grow"><div class="big">' + tot.words.toLocaleString('de-DE') + '</div><div class="muted small">Wörter</div></div></div>' +
+    (days.some(d => db.stats[d].cq) ? '<div class="muted small" style="margin-top:8px">Verständnis-Checks: ' + days.reduce((a, d) => a + (db.stats[d].cr || 0), 0) + ' von ' + days.reduce((a, d) => a + (db.stats[d].cq || 0), 0) + ' richtig</div>' : '') + '</div>' +
     '<div class="card"><h2>Tage</h2>' + (days.length ? days.slice(0, 30).map(d => { const s = db.stats[d]; return '<div class="item"><div class="grow">' + d.slice(8, 10) + '.' + d.slice(5, 7) + '.</div>' +
       '<span class="muted small">' + Math.round(s.ms / 60000) + ' min · ' + s.words.toLocaleString('de-DE') + ' Wörter</span><b>' + (s.ms > 5000 ? Math.round(s.words / (s.ms / 60000)) : '–') + ' WPM</b></div>'; }).join('')
       : '<div class="muted small">Noch nichts gelesen.</div>') + '</div>' +
@@ -744,7 +1185,12 @@ VIEWS.settings = () => {
   const s = db.settings;
   view.innerHTML = '<div class="card"><h2>Lesen</h2><label class="f" style="margin-top:0">Tempo: <b id="s-wv"></b> Wörter pro Minute</label><input type="range" id="s-wpm" min="100" max="900" step="25">' +
     '<label class="f">Schriftgröße: <b id="s-fv"></b></label><input type="range" id="s-font" min="24" max="48" step="2">' +
-    '<label class="c"><input type="checkbox" id="s-pause"> Pausen an Satzzeichen und Absätzen</label></div>' +
+    '<label class="c"><input type="checkbox" id="s-pause"> Pausen an Satzzeichen und Absätzen</label>' +
+    '<label class="c"><input type="checkbox" id="s-brake"> Tempo um 25 senken, wenn ich zweimal kurz nacheinander zum Satzanfang zurückspringe</label>' +
+    '<label class="f">Lesemodus</label><div class="chips" style="margin-top:0">' + [['wort', 'Wort für Wort'], ['zeile', 'Markierung läuft durch den Text']].map(o => '<button class="chip' + (s.mode === o[0] ? ' on' : '') + '" data-md="' + o[0] + '" style="padding:9px 12px">' + o[1] + '</button>').join('') + '</div>' +
+    '<div class="muted small" style="margin-top:6px">Im Zeilen-Modus bleibt der Text stehen und eine Markierung wandert im eingestellten Tempo hindurch. Das ist näher am normalen Lesen. Umschalten geht auch im Leser über ≡.</div></div>' +
+    '<div class="card"><h2>Vorlesen</h2><div class="small muted">Im Leser über 🔊: Die Stimme des Handys liest Satz für Satz, der Text läuft mit.</div><div class="chips">' + [['de', 'Deutsch'], ['en', 'Englisch']].map(o => '<button class="chip' + (s.ttsLang === o[0] ? ' on' : '') + '" data-tl="' + o[0] + '" style="padding:9px 12px">' + o[1] + '</button>').join('') + '</div>' +
+    '<label class="f">Sprechtempo: <b id="s-trv"></b>×</label><input type="range" id="s-tr" min="0.6" max="2.5" step="0.1"></div>' +
     '<div class="card"><h2>Tempo-Training</h2><label class="c"><input type="checkbox" id="s-ramp"> Tempo beim Lesen langsam steigern</label>' +
     '<div class="row" style="margin-top:8px"><div class="grow"><label class="f" style="margin-top:0">+ WPM pro Minute</label><input type="number" class="short" id="s-rpm" inputmode="numeric"></div>' +
     '<div class="grow"><label class="f" style="margin-top:0">höchstens</label><input type="number" class="short" id="s-rmax" inputmode="numeric"></div></div>' +
@@ -756,7 +1202,7 @@ VIEWS.settings = () => {
     '<div class="muted small" style="margin-top:6px">Der Filter nimmt Blau und Helligkeit aus dem ganzen Bild; bei „automatisch“ wird er abends von selbst stärker und bleibt bis 6 Uhr an. Ob Blaufilter das Einschlafen verbessern, ist in Studien umstritten. Sicherer wirken: Display dunkel stellen, nur kurz lesen, nichts Aufregendes.</div></div>' +
     '<div class="card"><h2>Fokus-Lesen</h2><div class="small muted">Leiser Klangteppich, solange der Leser offen ist. Umschalten geht auch im Leser über ♪.</div><div class="chips">' + KLANG.map(o => '<button class="chip' + (s.klang === o[0] ? ' on' : '') + '" data-kl="' + o[0] + '" style="padding:9px 12px">' + o[1] + '</button>').join('') + '</div>' +
     '<label class="f">Lautstärke</label><input type="range" id="s-kv" min="0.05" max="1" step="0.05"></div>' +
-    '<div class="muted small">Speedreader v1.2</div>';
+    '<div class="muted small">Speedreader v1.3</div>';
   $('s-wpm').value = s.wpm; $('s-font').value = s.font; $('s-pause').checked = s.pauses; $('s-ramp').checked = s.ramp; $('s-rpm').value = s.rampPerMin; $('s-rmax').value = s.rampMax;
   const lab = () => { $('s-wv').textContent = s.wpm; $('s-fv').textContent = s.font; }; lab();
   const sv = () => { store(K.set, s); lab(); };
@@ -768,6 +1214,10 @@ VIEWS.settings = () => {
   $('s-f1').oninput = e => { s.filterStart = +e.target.value; if (s.filterFull <= s.filterStart) { s.filterFull = Math.min(24, s.filterStart + 0.5); $('s-f2').value = s.filterFull; } fsave(); };
   $('s-f2').oninput = e => { s.filterFull = Math.max(+e.target.value, s.filterStart + 0.5); e.target.value = s.filterFull; fsave(); };
   $('s-kv').oninput = e => { s.klangVol = +e.target.value; store(K.set, s); };
+  $('s-brake').checked = s.brake; $('s-brake').onchange = e => { s.brake = e.target.checked; store(K.set, s); };
+  const tlab = () => { $('s-trv').textContent = String(s.ttsRate).replace('.', ','); }; $('s-tr').value = s.ttsRate; tlab(); $('s-tr').oninput = e => { s.ttsRate = +e.target.value; store(K.set, s); tlab(); };
+  view.querySelectorAll('[data-md]').forEach(b => b.onclick = () => { s.mode = b.dataset.md; store(K.set, s); render('settings'); });
+  view.querySelectorAll('[data-tl]').forEach(b => b.onclick = () => { s.ttsLang = b.dataset.tl; store(K.set, s); render('settings'); });
   view.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => { s.filter = b.dataset.fm; store(K.set, s); applyFilter(); render('settings'); });
   view.querySelectorAll('[data-kl]').forEach(b => b.onclick = () => { s.klang = b.dataset.kl; store(K.set, s); render('settings'); });
   $('s-wpm').oninput = e => { s.wpm = +e.target.value; sv(); }; $('s-font').oninput = e => { s.font = +e.target.value; sv(); };
@@ -780,7 +1230,10 @@ VIEWS.info = () => {
     '<li>Starte bei einem Tempo, bei dem du mühelos folgst (für die meisten 250 bis 350), und erhöhe in Schritten von 25.</li>' +
     '<li>Wenn du den Faden verlierst: anhalten, „Satz“ zurück, etwas langsamer weiter.</li>' +
     '<li>Kurze Sitzungen von 5 bis 15 Minuten reichen. Die Augen blinzeln beim Wort-für-Wort-Lesen weniger, also Pausen machen.</li>' +
-    '<li>Das Tempo-Training in den Einstellungen zieht dich langsam über deine Wohlfühlgrenze.</li></ul></div>' +
+    '<li>Das Tempo-Training in den Einstellungen zieht dich langsam über deine Wohlfühlgrenze.</li>' +
+    '<li>≡ schaltet in den Zeilen-Modus: Der Text bleibt stehen, die Markierung wandert. 🔊 liest vor.</li>' +
+    '<li>Angehalten kannst du mit „✎ Markieren“ Sätze antippen und später unter ☰ alle zusammen kopieren.</li>' +
+    '<li>„Verstanden? Kurzer Check“ zeigt drei Sätze, einer stand nicht im gelesenen Stück. Liegst du daneben, war es zu schnell.</li></ul></div>' +
     '<div class="card"><h2>Verstehen prüfen</h2><div class="small">Die App kann keine Fragen zum Inhalt stellen, sie arbeitet ohne Internet. Der Knopf unten kopiert die zuletzt gelesene Passage samt Auftrag; füg das in einen Claude-Chat ein, dann fragt Claude dich ab.</div>' +
     '<button class="block" id="i-quiz">Quiz-Auftrag kopieren</button><div id="i-msg" class="small muted" style="margin-top:6px"></div></div>' +
     '<div class="card"><h2>Ehrliche Einordnung</h2><ul class="small">' +
@@ -905,6 +1358,51 @@ async function srTests() {
   t('Fokus-Rauschen: Pegel und Grenzen', Math.abs(Math.sqrt(e2 / nz.length) - 0.2) < 0.02 && pk <= 1, Math.sqrt(e2 / nz.length).toFixed(3) + ' / ' + pk.toFixed(2));
   t('Fokus-Lautstärke quadratisch', focusGain(0) === 0 && Math.abs(focusGain(0.5) - 0.3) < 1e-9 && focusGain(2) === 1.2);
   t('Quiz-Auftrag enthält Text und Tempo', quizPrompt(['Hallo', 'Welt'], 312.4).includes('etwa 312 Wörter') && quizPrompt(['Hallo', 'Welt'], 300).endsWith('TEXT:\nHallo Welt'));
+  // ---- v1.3
+  const wt3 = wordsText(['Die', 'Donaudampfschi-', 'fffahrtsgesell-', 'schaft', 'fährt', 'E-Mail-', 'Adressen.'], 0, 7);
+  t('Zerteilte lange Wörter werden für Vorlesen und Markieren wieder ganz', wt3.text === 'Die Donaudampfschifffahrtsgesellschaft fährt E-Mail- Adressen.' && wt3.offs.join() === '0,4,18,32,39,45,53', wt3.text + ' ' + wt3.offs.join());
+  const W = 'Der Hund bellt laut. Die Katze schläft heute sehr lange auf dem Sofa. Niemand stört sie dabei! Am Abend kommt der Regen, und alle gehen ins Haus.'.split(' '), noPara = new Set();
+  t('sentBounds: Satz um ein Wort', sentBounds(W, noPara, 0).join() === '0,4' && sentBounds(W, noPara, 6).join() === '4,13' && sentBounds(W, noPara, W.length - 1).join() === '17,' + W.length && sentBounds(W, new Set([8]), 6).join() === '4,8' && sentBounds(W, noPara, 12, 4)[1] - sentBounds(W, noPara, 12, 4)[0] <= 5);
+  t('Echtes Tempo erst nach 20 s, davor Schätzung', realWpm(100, 30000, 300) === 200 && realWpm(5, 3000, 300) === 240);
+  const chs = [{ t: 'A', i: 0 }, { t: 'B', i: 1000 }, { t: 'C', i: 3000 }];
+  let rm = remainParts(500, 4000, chs, 250);
+  t('Restzeit bis Kapitelende und gesamt', rm.chap === 2 && rm.total === 14 && remainParts(3500, 4000, chs, 250).chap === 2 && remainParts(500, 4000, [], 250).chap === null && remainParts(500, 4000, [{ t: 'A', i: 0 }], 250).chap === null);
+  t('Tempo-Bremse: zweimal in 90 s', brakeHit([1000, 50000], 60000).hit && !brakeHit([1000], 60000).hit && !brakeHit([1000, 120000], 120000).hit && brakeHit([1000, 100000, 120000], 120000).keep.length === 2);
+  const hls = []; const h1 = toggleHl(hls, 4, 13, 'Die Katze'), h2 = toggleHl(hls, 0, 4, 'Der Hund'), h3 = toggleHl(hls, 6, 7, 'x');
+  t('Markieren: setzen, sortieren, erneutes Antippen hebt auf', h1 && h2 && !h3 && hls.length === 1 && hls[0].a === 0);
+  t('Markierte Stellen als Text', hlExport('Buch', [{ a: 0, b: 4, t: 'Der Hund bellt laut.' }, { a: 600, b: 610, t: 'Zweite Stelle.' }], 2000) === 'Markierte Stellen aus „Buch“\n\n„Der Hund bellt laut.“ (S. 1)\n\n„Zweite Stelle.“ (S. 3)');
+  const sIn = sentencesIn(W, noPara, 0, W.length);
+  t('Sätze für den Check: nur vollständige mit 6 bis 32 Wörtern', sIn.length === 2 && sIn[0].startsWith('Die Katze') && sIn[1].endsWith('ins Haus.') && sentencesIn(W, noPara, 5, 12).length === 0, sIn.join(' | '));
+  let sd3 = 5; const rnd3 = () => { sd3 = (sd3 * 1103515245 + 12345) & 0x7fffffff; return sd3 / 0x7fffffff; };
+  const cb = checkBuild(['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'], ['f1', 'f2', 'a3', 'f3', 'f4'], rnd3);
+  t('Check: je Runde zwei gelesene und genau ein fremder Satz, keiner doppelt', cb && cb.length === 3 && cb.every(q => q.length === 3 && q.filter(o => o.fremd).length === 1 && q.every(o => o.fremd === (o.t[0] === 'f'))) && new Set(cb.flat().map(o => o.t)).size === 9, JSON.stringify(cb));
+  t('Check: ohne Vergleichstext oder mit zu wenig Sätzen keiner', checkBuild(['a', 'b', 'c'], [], rnd3) === null && checkBuild(['a'], ['f'], rnd3) === null && checkBuild(['a', 'b'], ['a', 'b'], rnd3) === null && checkBuild(['a', 'b'], ['f'], rnd3).length === 1);
+  t('Geteilter Link wird erkannt, normaler Text nicht', sharedUrl('https://example.org/a-b?x=1') === 'https://example.org/a-b?x=1' && sharedUrl('Ein Titel\nhttps://example.org/x.') === 'https://example.org/x' && sharedUrl('Lies das: https://a.de und https://b.de') === null && sharedUrl('Ein ganz normaler Satz ohne Link.') === null &&
+    sharedUrl(Array.from({ length: 40 }, () => 'Wort').join(' ') + ' https://a.de/x') === null);
+  const art = htmlArticle('<html><head><title>Seite | Blog</title><meta property="og:title" content="Der Titel"></head><body><nav><p>' + 'Menü Start Kontakt Impressum und noch mehr Navigationstext hier. '.repeat(3) + '</p></nav><div id="side"><p>Kurz.</p></div>' +
+    '<div class="post"><h1>Der Titel</h1><p>' + 'Erster Absatz mit genug Text, damit er zählt und gefunden wird. '.repeat(3) + '</p><script>var x = 1;<\/script><p>Zweiter Absatz, ebenfalls lang genug für die Erkennung des Artikels hier.</p><ul><li>Ein Punkt</li></ul></div><footer><p>' + 'Fußzeile mit rechtlichen Hinweisen und sehr viel Text ohne Belang. '.repeat(3) + '</p></footer></body></html>');
+  t('Webseite: Artikeltext ohne Menü, Skript und Fußzeile', art.title === 'Der Titel' && art.text.startsWith('Der Titel\n\nErster Absatz') && art.text.endsWith('Ein Punkt') && !/Menü|Fußzeile|var x|Kurz\./.test(art.text), art.text.slice(0, 200));
+  let pv = pdfValue('<< /Type /Page /Kids [3 0 R 4 0 R] /N 12.5 /S (a\\(b\\)\\374\\n) /H <48 69> /D << /X true >> >> rest', 0)[0];
+  t('PDF: Werte lesen (Verzeichnis, Liste, Verweis, Zeichenketten)', pv.Type.n === 'Page' && pv.Kids.length === 2 && pv.Kids[1].ref === 4 && pv.N === 12.5 && pv.S.s === 'a(b)ü\n' && pv.H.s === 'Hi' && pv.D.X === true, JSON.stringify(pv));
+  const cm = pdfCMap('1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <00C4> <0002> <00660069> endbfchar 2 beginbfrange <0010> <0012> <0061> <0020> <0021> [<0058> <0059>] endbfrange');
+  t('PDF: Zeichentabelle (einzelne Codes, Bereiche, Ligatur)', cm.two && cm.map.get(1) === 'Ä' && cm.map.get(2) === 'fi' && cm.map.get(0x11) === 'b' && cm.map.get(0x12) === 'c' && cm.map.get(0x21) === 'Y');
+  t('PDF: Zeilen zu Absätzen, Trennstrich und Seitenzahl', pdfParagraphs([{ y: 700, size: 12, text: 'Eine Zeile mit Trenn-' }, { y: 686, size: 12, text: 'strich und Ende.' }, { y: 672, size: 12, text: 'Noch im Absatz.' }, { y: 640, size: 12, text: 'Neuer Absatz.' }, { y: 40, size: 12, text: '17' }]).join('|') === 'Eine Zeile mit Trennstrich und Ende. Noch im Absatz.|Neuer Absatz.' &&
+    joinLines('E-Mail-', 'Adresse') === 'E-Mail- Adresse' && joinLines('Haus', 'tür') === 'Haus tür');
+  if (typeof CompressionStream !== 'undefined') {
+    // Selbst gebautes PDF: komprimierter Inhalt, eine Schrift mit Windows-Zeichen, eine mit Zeichentabelle
+    const enc = x => { const b = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) b[i] = x.charCodeAt(i) & 255; return b; };
+    const zip = async x => new Uint8Array(await new Response(new Blob([enc(x)]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+    const content = await zip('BT /F1 12 Tf 72 700 Td (Erste Zeile mit Gr\\374\\337en und Trenn-) Tj 0 -14 Td (strich am Ende.) Tj 0 -30 Td [(Zwei)-300(ter)10( Absatz.)] TJ /F2 12 Tf 0 -14 Td <00010002> Tj ET');
+    const cmap = '/CIDInit /ProcSet findresource begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <00C4> <0002> <0068> endbfchar endcmap';
+    const parts = ['%PDF-1.5\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n' +
+      '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n6 0 obj\n<< /Type /Font /Subtype /Type0 /ToUnicode 7 0 R >>\nendobj\n7 0 obj\n<< /Length ' + cmap.length + ' >>\nstream\n' + cmap + '\nendstream\nendobj\n' +
+      '4 0 obj\n<< /Length ' + content.length + ' /Filter /FlateDecode >>\nstream\n', content, '\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF'];
+    const all = new Uint8Array(parts.reduce((a, x) => a + x.length, 0)); let off = 0; parts.forEach(x => { all.set(typeof x === 'string' ? enc(x) : x, off); off += x.length; });
+    let pd = null, pe = ''; try { pd = await parsePdf(all); } catch (e) { pe = e.message; }
+    t('PDF: Text aus einem komprimierten PDF mit zwei Schriften', pd && pd.pages === 1 && pd.text === 'Erste Zeile mit Grüßen und Trennstrich am Ende.\n\nZwei ter Absatz. Äh', pe || (pd && JSON.stringify(pd.text)));
+    let e1 = '', e2 = ''; try { await parsePdf(enc('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj trailer << /Encrypt 9 0 R >>')); } catch (e) { e1 = e.message; } try { await parsePdf(enc('kein pdf')); } catch (e) { e2 = e.message; }
+    t('PDF: verschlüsselt und Nicht-PDF werden abgelehnt', /verschlüsselt/.test(e1) && /Keine PDF/.test(e2), e1 + ' / ' + e2);
+  }
   console.log('Selbsttest: ' + ok + ' OK, ' + fail + ' Fehler');
   return { ok, fail };
 }

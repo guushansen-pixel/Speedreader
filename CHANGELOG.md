@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3 (code 4) – 2026-11-16
+
+- Import: PDF mit echtem Text (eigener kleiner PDF-Leser) und Artikel von
+  einer Webseite per Link, auch als geteilter Link aus dem Browser. Dafür
+  hat die App jetzt die Internet-Berechtigung; sie lädt nur die eine Seite,
+  die man ihr gibt.
+- Vorlesen (🔊): Die Stimme des Handys liest Satz für Satz, der Text läuft
+  mit. Deutsch oder Englisch, Sprechtempo einstellbar.
+- Zeilen-Modus (≡): Der Text bleibt stehen, eine Markierung wandert im
+  eingestellten Tempo hindurch.
+- Verständnis-Check ohne Netz: drei Sätze, einer stand nicht im gelesenen
+  Stück.
+- Tempo-Bremse: zweimal kurz nacheinander „Satz zurück" senkt das Tempo
+  um 25.
+- Markieren: angehalten Sätze antippen, unter ☰ alle zusammen kopieren.
+- Restzeit bis zum Kapitelende und bis zum Schluss, gerechnet mit dem
+  echten Tempo der laufenden Sitzung.
+
 ## 1.2 (code 3) – 2026-11-16
 
 - Abend-Farbfilter für die ganze App: aus, immer an oder automatisch nach

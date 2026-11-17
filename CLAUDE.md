@@ -30,8 +30,9 @@ text/plain), baut die Brücke `SrAndroid` ein und leitet `onNewIntent` weiter.
 
 ## Konventionen
 
-- Alles in `web/index.html`, kein Framework, kein Netzwerk, keine Pakete
-  (auch der ZIP-Leser ist eigener Code).
+- Alles in `web/index.html`, kein Framework, keine Pakete. Netzwerk nur an
+  einer Stelle: `fetchBytes`/`addUrl` holen die eine Seite, deren Link der
+  Nutzer eingibt oder teilt. Nichts anderes darf ins Netz.
 - Textaufbereitung (`tokenize`, `orpIndex`, `delayFactor`, `sentenceStart`)
   und EPUB-Lesen bleiben frei von DOM-Zustand der App und bekommen für jede
   Änderung einen Fall in `srTests()`.
@@ -77,3 +78,35 @@ Blatt hinter ☰). `parseEpub` liefert dafür zusätzlich `parts` mit
 Überschrift. Die Info-Zeile steht jetzt unter der Kopfzeile, damit drei
 Knöpfe Platz haben. Selbsttest 45/45; mit einem erzeugten Vier-Kapitel-Text
 im Browser geprüft, mit keinem echten Buch.
+
+v1.3 (code 4, 2026-11-16): sieben Punkte auf Daniels Wunsch: PDF-Import
+(`parsePdf`, `pdfValue`, `pdfCMap`, `pdfParagraphs`), Artikel von einer
+Webseite (`htmlArticle`, `addUrl`, `sharedUrl`), Vorlesen (`Say`,
+`sayNext`), Zeilen-Modus (`lineMode`, `lineShow`), Verständnis-Check
+(`sentencesIn`, `checkBuild`, `startCheck`), Tempo-Bremse (`brakeHit`),
+Markieren (`toggleHl`, `hlExport`) und Restzeit (`realWpm`, `remainParts`).
+Beschreibung im README.
+
+In einer Cloud-Sitzung gebaut, deshalb **noch keine APK** und der native
+Teil ist nie gelaufen. Am Laptop `.\build.ps1 -Release` (Standardwerte
+1.3 / 4). Was dort neu ist:
+
+- `build.ps1` ruft `new-app.ps1` jetzt mit `-Online` auf (INTERNET für den
+  Link-Import) und setzt den `<queries>`-Block für `TTS_SERVICE`; beides mit
+  Throw-Guard.
+- `FileBridge.java` hat `ttsSpeak`/`ttsStop`/`shutdown` und
+  `fetchUrl`/`takeFetched`; `MainActivity` bekommt `onDestroy`.
+- Geprüft ist nur, dass `FileBridge` und die gepatchte `MainActivity` gegen
+  die Android-14-Bibliothek kompilieren (Patches am Template von
+  apk-builder nachgespielt) und dass das Manifest gültig bleibt.
+
+Selbsttest 62/62. Im Browser mit einer Attrappe von `SrAndroid`
+durchgespielt: Artikel und PDF per Link, geteilter Link, Fehlerfälle,
+Zeilen-Modus, Tempo-Bremse, Markieren samt Export, Check, Vorlesen.
+PDF-Leser zusätzlich mit drei erzeugten PDFs (Chromium, LibreOffice Text
+und Writer) gegen den Ausgangstext verglichen.
+
+Am Gerät offen: ob die Stimme startet und Wörter meldet, wie das Vorlesen
+bei langen Sätzen klingt, ob der Link-Import echte Nachrichtenseiten
+brauchbar erwischt, echte Buch-PDFs, und ob der Zeilen-Modus bei hohem
+Tempo flüssig scrollt.

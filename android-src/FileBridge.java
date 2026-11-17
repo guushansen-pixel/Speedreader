@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -16,6 +18,10 @@ import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Locale;
 
 /**
  * Native Bruecke, aus der Web-App erreichbar als window.SrAndroid.
@@ -27,6 +33,18 @@ import java.io.InputStream;
  * copyText(text): Text in die Zwischenablage.
  * takeSharedText(): Text, den eine andere App per "Teilen" geschickt hat;
  *   MainActivity reicht den Intent an takeIntent() weiter.
+ *
+ * ttsSpeak(text, rate, lang, id) / ttsStop(): Vorlesen mit der Stimme des
+ *   Geraets (im WebView gibt es window.speechSynthesis nicht). Fortschritt
+ *   kommt ueber window.srTts(id, 'range'|'done'|'error', zeichenposition).
+ *   ttsSpeak liefert false, solange die Stimme noch startet; die Web-App
+ *   versucht es dann kurz darauf erneut. Braucht den <queries>-Eintrag fuer
+ *   TTS_SERVICE im Manifest (build.ps1), sonst findet Android keine Stimme.
+ * fetchUrl(url, id): laedt genau eine https-Seite (hoechstens 25 MB) auf
+ *   einem eigenen Thread und meldet window.srFetched(id, status, typ); den
+ *   Inhalt holt die Web-App per takeFetched(id) als Base64. Das ist der
+ *   einzige Netzzugriff der App und passiert nur auf Antippen. Braucht die
+ *   INTERNET-Berechtigung (new-app.ps1 -Online).
  *
  * Gelesen wird nativ ueber den ContentResolver, damit
  * setAllowContentAccess(false) im WebView unangetastet bleibt. Die Quelle
@@ -43,6 +61,9 @@ public class FileBridge {
     private String pickedName = null;
     private String pickedB64 = null;
     private String shared = null;
+    private final HashMap<Integer, String> fetched = new HashMap<>();
+    private TextToSpeech tts = null;
+    private volatile boolean ttsReady = false;
 
     FileBridge(Activity activity, WebView webView) {
         this.activity = activity;
@@ -105,6 +126,115 @@ public class FileBridge {
     @JavascriptInterface
     public String takeSharedText() {
         synchronized (lock) { String s = shared; shared = null; return s == null ? "" : s; }
+    }
+
+    // ---- Vorlesen -----------------------------------------------------
+
+    /** Stimme erst beim ersten Vorlesen starten; laeuft auf dem UI-Thread. */
+    private void initTts() {
+        if (tts != null) return;
+        tts = new TextToSpeech(activity, status -> {
+            if (status != TextToSpeech.SUCCESS || tts == null) return;
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) { }
+                @Override public void onDone(String utteranceId) { ttsEvent(utteranceId, "done", 0); }
+                @SuppressWarnings("deprecation")
+                @Override public void onError(String utteranceId) { ttsEvent(utteranceId, "error", 0); }
+                @Override public void onError(String utteranceId, int errorCode) { ttsEvent(utteranceId, "error", 0); }
+                // Ab Android 8: welches Wort gerade gesprochen wird.
+                @Override public void onRangeStart(String utteranceId, int start, int end, int frame) { ttsEvent(utteranceId, "range", start); }
+            });
+            ttsReady = true;
+        });
+    }
+
+    private void ttsEvent(String utteranceId, String kind, int pos) {
+        final int id;
+        try { id = Integer.parseInt(utteranceId); } catch (Exception e) { return; }
+        webView.post(() -> webView.evaluateJavascript(
+            "window.srTts && window.srTts(" + id + ",'" + kind + "'," + pos + ")", null));
+    }
+
+    @JavascriptInterface
+    public boolean ttsSpeak(final String text, final double rate, final String lang, final int id) {
+        if (tts == null || !ttsReady) {
+            activity.runOnUiThread(this::initTts);
+            return false;
+        }
+        activity.runOnUiThread(() -> {
+            if (tts == null) return;
+            int r = tts.setLanguage("en".equals(lang) ? Locale.UK : Locale.GERMANY);
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                ttsEvent(String.valueOf(id), "error", 0);
+                return;
+            }
+            tts.setSpeechRate((float) Math.max(0.3, Math.min(3.0, rate)));
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, String.valueOf(id));
+        });
+        return true;
+    }
+
+    @JavascriptInterface
+    public void ttsStop() {
+        activity.runOnUiThread(() -> { if (tts != null) tts.stop(); });
+    }
+
+    /** Aus MainActivity.onDestroy. */
+    void shutdown() {
+        ttsReady = false;
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+            tts = null;
+        }
+    }
+
+    // ---- Eine Webseite laden ---------------------------------------------
+
+    @JavascriptInterface
+    public void fetchUrl(final String url, final int id) {
+        new Thread(() -> {
+            int status = 0;
+            String type = "";
+            HttpURLConnection c = null;
+            try {
+                if (url == null || !url.startsWith("https://")) throw new java.io.IOException("nur https");
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(15000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) Speedreader");
+                c.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5");
+                status = c.getResponseCode();
+                if (status == 200) {
+                    String ct = c.getContentType();
+                    if (ct != null) type = ct.replaceAll("[^A-Za-z0-9/+.=; -]", "");
+                    try (InputStream in = c.getInputStream()) {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                            if (out.size() > MAX_BYTES) throw new java.io.IOException("zu gross");
+                        }
+                        synchronized (lock) {
+                            fetched.put(id, Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                status = 0;
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            final String call = "window.srFetched && window.srFetched(" + id + "," + status + ",'" + type + "')";
+            webView.post(() -> webView.evaluateJavascript(call, null));
+        }).start();
+    }
+
+    @JavascriptInterface
+    public String takeFetched(int id) {
+        synchronized (lock) { String s = fetched.remove(id); return s == null ? "" : s; }
     }
 
     /** Aus MainActivity.onCreate und onNewIntent: Text aus "Teilen" merken. */
